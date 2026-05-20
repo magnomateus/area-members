@@ -96,8 +96,8 @@
 - [ ] Tenant Missa Explicada visível no Prisma Studio
 - [ ] Offer + Product + ContentItem (fake mas estruturados) visíveis
 
-#### 1.2 — Middleware multi-tenant + autenticação base
-**Prompt CC fará:** middleware que resolve tenant por domínio (em dev usa header), `AsyncLocalStorage` pra propagar tenantId, helper `scoped-db.ts`, integração Lucia, página `/login` (UI mobile-first, magic link request).
+#### 1.2 — Proxy multi-tenant + autenticação base
+**Prompt CC fará:** proxy (`proxy.ts`) que resolve tenant por domínio (em dev usa `DEV_TENANT_SLUG`), `AsyncLocalStorage` pra propagar tenantId, helper `scoped-db.ts`, integração Lucia, página `/login` (UI mobile-first, magic link request).
 
 **Aceite:**
 - [ ] Em dev, `localhost:3000` resolve para tenant Missa Explicada (via header ou env)

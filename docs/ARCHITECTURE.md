@@ -2,7 +2,9 @@
 
 > **Documento de fundação do projeto.** Este é a "constituição" da Plataforma de Membros. Toda decisão técnica, todo prompt de Claude Code e toda discussão de feature DEVE referenciar este documento. Se algo aqui precisar mudar, a mudança é deliberada e documentada — não acidental.
 
-> **Versão:** 1.1 • **Última atualização:** Maio/2026 • **Owner:** Magno Bessa
+> **Versão:** 1.2 • **Última atualização:** Maio/2026 • **Owner:** Magno Bessa
+
+> **Changelog 1.2:** (a) Convenção de middleware migrada para `proxy.ts` (Next 16) — roda em **Node.js runtime** por padrão. (b) Estratégia híbrida do `scoped-db` documentada — seção 9. (c) Transporte de `tenantId`: header `X-Tenant-Id` dentro de request, `AsyncLocalStorage` fora de request — seção 9. (d) Renomeação `src/middleware.ts` → `src/proxy.ts` (função `middleware` → `proxy`).
 
 > **Changelog 1.1:** (a) Adicionada restrição absoluta sem-Docker na seção 3. (b) `DIRECT_URL` adicionado às envs e ao `datasource db` do schema. (c) Campo `visWebhookSecret` adicionado ao modelo `Tenant`.
 
@@ -70,7 +72,7 @@ User 1───* PushSubscription
 2. **Entitlements são imutáveis em termos de origem.** `sourceOrderId` nunca muda. Se cliente compra de novo o mesmo produto, é um NOVO entitlement.
 3. **Validade do entitlement é definida no momento da concessão**, vinda do `OfferProduct.validityDays`. Default `null` = vitalício.
 4. **Reembolso/chargeback → SUSPEND, nunca DELETE.** Dados preservados. Pode reativar.
-5. **Multi-tenant isolation** é enforced em CADA query via middleware + `tenantId` em CADA tabela tenant-scoped. Sem exceções.
+5. **Multi-tenant isolation** é enforced em CADA query via proxy + `tenantId` em CADA tabela tenant-scoped. Sem exceções.
 
 ---
 
@@ -193,10 +195,10 @@ Se qualquer um desses três caminhos funcionar, o cliente acessa. Tem que falhar
 
 ### Multi-tenancy
 
-**Modelo:** Row-Level Isolation via `tenantId` em toda tabela tenant-scoped, com middleware obrigatório que injeta `tenantId` no contexto da request.
+**Modelo:** Row-Level Isolation via `tenantId` em toda tabela tenant-scoped, com um proxy obrigatório que injeta `tenantId` no contexto da request.
 
 **Resolução de tenant:**
-1. **Por domínio (primary):** request chega em `app.missaexplicada.com.br` → middleware resolve tenant via `Tenant.domain`.
+1. **Por domínio (primary):** request chega em `app.missaexplicada.com.br` → proxy resolve tenant via `Tenant.domain`.
 2. **Por `src` do tracking VIS (secondary, no webhook):** webhook chega → lê `data.tracking.src` (formato `tenant_<slug>`) → resolve tenant.
 3. **Por mapeamento de Product VIS (fallback):** se `src` ausente, usa `Offer.visProductId` → lookup → tenant.
 
@@ -215,7 +217,7 @@ src/
 │   ├── storage/           # signed URLs
 │   └── tenant/            # resolução de tenant
 ├── components/             # UI (shadcn-style)
-├── middleware.ts          # tenant detection + auth gate
+├── proxy.ts               # tenant detection + auth gate (convenção Next 16)
 └── types/                 # tipos compartilhados
 ```
 
@@ -787,9 +789,48 @@ PWA manifest é gerado dinamicamente em `/app/manifest.ts` lendo o tenant da req
 
 ### Isolamento de dados (regras absolutas)
 1. Todo query Prisma de tabela tenant-scoped DEVE incluir `tenantId`. Sem exceção.
-2. Middleware injeta `tenantId` no contexto via `AsyncLocalStorage`.
-3. Helper `db.tenantScoped(prisma)` wrappa o client e adiciona WHERE automaticamente.
-4. Testes E2E validam que User do Tenant A NUNCA recebe dado do Tenant B em nenhum endpoint.
+2. O `tenantId` é resolvido pelo proxy e propagado conforme a subseção "Propagação de tenant".
+3. Helper `scoped-db` (Prisma Client Extension) injeta o `tenantId` automaticamente. Ver "Estratégia do scoped-db".
+4. Testes de integração validam que User do Tenant A NUNCA recebe dado do Tenant B.
+
+### Runtime do proxy
+
+O `src/proxy.ts` (convenção `proxy.ts` do Next 16, sucessora de `middleware.ts`)
+roda em **Node.js runtime** — padrão dessa convenção, sem precisar declarar
+`runtime`. Motivo: a resolução de tenant consulta o banco (Prisma Client, que
+não roda no Edge) e o projeto usa `AsyncLocalStorage`. O custo de cold start é
+irrelevante (Vercel + sa-east-1) e o resolver tem cache em memória (TTL 60s) —
+o proxy faz no máximo 1 query por tenant a cada 60s.
+
+### Propagação de tenant
+
+- **Dentro de uma request:** o proxy resolve o tenant e injeta o header
+  `X-Tenant-Id` na request. Server Components e Route Handlers leem via
+  `next/headers`. O `AsyncLocalStorage` NÃO é populável a partir do proxy
+  (runtime separado do render) — o header é o transporte real.
+- **Fora de request** (seed, testes, scripts CLI): usa `AsyncLocalStorage` via
+  `withTenantContext(tenantId, fn)`.
+- `getCurrentTenantId()` lê primeiro do `AsyncLocalStorage` e, se vazio, faz
+  fallback para o header `X-Tenant-Id`.
+
+### Estratégia do scoped-db
+
+`src/lib/tenant/scoped-db.ts` é uma Prisma Client Extension que aplica o
+`tenantId` do contexto atual. Regras por operação, nos modelos tenant-scoped
+(`User`, `Offer`, `Product`, `Order`):
+
+- **Auto-inject no `where`:** `findMany`, `findFirst`, `update`, `updateMany`,
+  `delete`, `deleteMany`, `count`, `aggregate`, `groupBy`.
+- **Bloqueado:** `findUnique` / `findUniqueOrThrow` — lançam erro orientando a
+  usar `findFirst` (não há como filtrar `tenantId` num lookup por chave única).
+- **Validado (não injetado):** `create`, `createMany`, `upsert` — exigem
+  `tenantId` no `data`; havendo contexto de tenant ativo, deve bater com ele.
+- **Modelos sem `tenantId`** (`Session`, `AccessToken`, `WebhookDelivery`,
+  `PushSubscription`, etc.) passam direto, sem alteração.
+- **`EventLog`** é caso especial (`tenantId` opcional): se presente no `data`,
+  é validado contra o contexto; se ausente, é permitido (eventos globais).
+
+Detalhamento e justificativa em `docs/DECISIONS/001-scoped-db-strategy.md`.
 
 ---
 
@@ -906,7 +947,7 @@ vis-membros/
 │   ├── components/
 │   │   ├── member/
 │   │   └── admin/
-│   ├── middleware.ts                 # tenant detection + auth gate
+│   ├── proxy.ts                      # tenant detection + auth gate (Next 16)
 │   └── types/
 ├── public/
 │   ├── icons/                        # PWA icons (default + per-tenant)

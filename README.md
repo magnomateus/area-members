@@ -4,8 +4,8 @@
 Automatiza o fluxo pós-compra: do pagamento aprovado ao cliente consumindo o
 produto, sem intervenção manual.
 
-> **Status:** Fase 1 · sub-fase 1.1 (bootstrap do projeto e schema). Sem
-> features de usuário ainda — ver [docs/PHASES.md](./docs/PHASES.md).
+> **Status:** Fase 1 · sub-fase 1.2 (proxy multi-tenant + autenticação
+> base). Ainda sem páginas de produto/home — ver [docs/PHASES.md](./docs/PHASES.md).
 
 ## Pré-requisitos
 
@@ -41,6 +41,32 @@ App em http://localhost:3000 · Prisma Studio com `pnpm db:studio`.
 > usado pelo Prisma Client em runtime) e `DIRECT_URL` para a **conexão direta**
 > (porta 5432, usada pelo Prisma Migrate). Ambos são obrigatórios. Se a senha
 > tiver caracteres especiais (`@`, `:`, `/`), use percent-encoding na URL.
+
+## Desenvolvimento
+
+### Resolução de tenant em dev
+
+O proxy (`src/proxy.ts`) resolve o tenant pela variável **`DEV_TENANT_SLUG`** (em produção a
+resolução é pelo hostname → `Tenant.domain`). O `.env.example` já traz
+`DEV_TENANT_SLUG=missa-explicada`. Um slug inexistente faz toda request
+responder **404 — Tenant não encontrado**.
+
+### Testar o login por magic link
+
+A Fase 1 tem apenas login por **magic link** (sem senha). O envio real por
+WhatsApp/email só chega na sub-fase 1.6 — por enquanto o link é **impresso no
+console do servidor**:
+
+1. `pnpm dev` e abra http://localhost:3000/login
+2. Informe o email do usuário de seed: `magno@dev.local`
+3. A página mostra sempre uma mensagem genérica (anti-enumeração — não
+   confirma nem nega se o email existe)
+4. No terminal do `pnpm dev` aparece:
+   `[magic-link] magno@dev.local -> http://localhost:3000/auth/redeem?t=<token>`
+5. O `AccessToken` gerado fica visível no `pnpm db:studio`
+
+A página `/auth/redeem`, que consome o token e cria a sessão, chega na
+sub-fase 1.4.
 
 ## Comandos
 

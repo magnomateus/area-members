@@ -89,11 +89,25 @@ async function main(): Promise<void> {
     },
   });
 
+  // User de teste — permite exercitar o fluxo de magic link sem simular webhook.
+  // Sem senha (passwordHash null): autenticacao apenas por magic link.
+  const user = await prisma.user.upsert({
+    where: { tenantId_email: { tenantId: tenant.id, email: "magno@dev.local" } },
+    update: {},
+    create: {
+      tenantId: tenant.id,
+      email: "magno@dev.local",
+      name: "Magno (dev)",
+      phone: null,
+    },
+  });
+
   console.log("Seed concluido:");
   console.log(`  Tenant:      ${tenant.name} (${tenant.slug})`);
   console.log(`  Offer:       ${offer.name} — R$ ${offer.price.toString()}`);
   console.log(`  Product:     ${product.name} (${product.slug})`);
   console.log("  ContentItem: Missa Explicada — PDF principal");
+  console.log(`  User:        ${user.name} <${user.email}>`);
 }
 
 main()
