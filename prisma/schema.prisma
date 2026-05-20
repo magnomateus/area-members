@@ -1,0 +1,425 @@
+// schema.prisma
+// Plataforma de Membros VIS — modelo de dados.
+// Fonte da verdade: ARCHITECTURE.md secao 5. Nao desviar sem decisao deliberada.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────
+// TENANT — nicho/marca isolado
+// ─────────────────────────────────────────
+model Tenant {
+  id        String   @id @default(uuid())
+  slug      String   @unique         // "missa-explicada", "protocolo-alpha"
+  name      String                   // "Missa Explicada"
+  domain    String?  @unique         // "app.missaexplicada.com.br"
+  branding  Json                     // { logoUrl, primaryColor, appName, themeColor, ... }
+  visWebhookSecret String?           // secret HMAC do webhook VIS deste tenant (WEBHOOK_CONTRACT.md secao 3)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users     User[]
+  offers    Offer[]
+  products  Product[]
+  orders    Order[]
+  events    EventLog[]
+
+  @@index([slug])
+  @@index([domain])
+}
+
+// ─────────────────────────────────────────
+// USER — cliente da area de membros
+// ─────────────────────────────────────────
+model User {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+
+  email     String
+  phone     String?                  // formato E.164: +5511999999999
+  cpf       String?                  // sem mascara
+  name      String?
+
+  // auth
+  passwordHash String?               // null = so magic link
+  emailVerified Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lastLoginAt DateTime?
+
+  orders          Order[]
+  entitlements    Entitlement[]
+  accessTokens    AccessToken[]
+  sessions        Session[]
+  progress        Progress[]
+  pushSubscriptions PushSubscription[]
+
+  @@unique([tenantId, email])        // email unico POR TENANT
+  @@index([tenantId])
+  @@index([email])
+}
+
+// ─────────────────────────────────────────
+// OFFER — o que a VIS vende
+// ─────────────────────────────────────────
+model Offer {
+  id              String   @id @default(uuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+
+  visProductId    Int      @unique   // id na VIS (vem em products[].id no webhook)
+  visProductUuid  String?            // uuid na VIS (backup, pra logs)
+  name            String             // "Missa Explicada Premium"
+  description     String?
+  price           Decimal  @db.Decimal(10, 2)
+  active          Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  offerProducts OfferProduct[]
+  orderItems    OrderItem[]
+
+  @@index([tenantId])
+  @@index([visProductId])
+}
+
+// ─────────────────────────────────────────
+// PRODUCT — o que o cliente consome
+// ─────────────────────────────────────────
+enum ProductType {
+  EBOOK
+  BONUS_PACK
+  COMMUNITY
+  VIDEO_COURSE
+  AUDIO
+  LIVE
+  OTHER
+}
+
+model Product {
+  id          String      @id @default(uuid())
+  tenantId    String
+  tenant      Tenant      @relation(fields: [tenantId], references: [id])
+
+  name        String                  // "Ebook Missa Explicada"
+  slug        String                  // "ebook-missa-explicada"
+  type        ProductType
+  description String?
+  coverUrl    String?                 // capa exibida na home
+  metadata    Json?                   // especifico por tipo (ex: communityUrl pra COMMUNITY)
+  active      Boolean     @default(true)
+  sortOrder   Int         @default(0) // ordem de exibicao na home
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  offerProducts OfferProduct[]
+  contentItems  ContentItem[]
+  orderItems    OrderItem[]
+  entitlements  Entitlement[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+}
+
+// ─────────────────────────────────────────
+// OFFER_PRODUCT — juncao: oferta libera produtos
+// ─────────────────────────────────────────
+model OfferProduct {
+  id            String   @id @default(uuid())
+  offerId       String
+  offer         Offer    @relation(fields: [offerId], references: [id])
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id])
+
+  validityDays  Int?              // null = vitalicio; 30 = 30 dias apos concessao
+
+  createdAt DateTime @default(now())
+
+  @@unique([offerId, productId])
+  @@index([offerId])
+  @@index([productId])
+}
+
+// ─────────────────────────────────────────
+// ORDER — compra na VIS
+// ─────────────────────────────────────────
+enum OrderStatus {
+  CREATED
+  PENDING
+  APPROVED
+  REFUSED
+  CANCELLED
+  REFUNDED
+  CHARGEDBACK
+}
+
+model Order {
+  id            String      @id @default(uuid())
+  tenantId      String
+  tenant        Tenant      @relation(fields: [tenantId], references: [id])
+  userId        String
+  user          User        @relation(fields: [userId], references: [id])
+
+  visOrderId    Int         @unique   // order_id no payload VIS
+  visOrderUuid  String?     @unique   // uuid no payload VIS
+
+  status        OrderStatus
+  amount        Decimal     @db.Decimal(10, 2)
+  subtotal      Decimal     @db.Decimal(10, 2)
+  discount      Decimal     @db.Decimal(10, 2) @default(0)
+  paymentMethod String?                // credit_card, pix, boleto, pix_auto
+  paymentGateway String?               // stripe, mercadopago, woovi
+
+  // tracking VIS (replicado pra analytics)
+  utmSource     String?
+  utmMedium     String?
+  utmCampaign   String?
+  utmContent    String?
+  utmTerm       String?
+  src           String?                // usado como tenantId nas URLs de checkout
+  sck           String?
+  fbclid        String?
+  gclid         String?
+  ttclid        String?
+  clickId       String?
+  clickSource   String?
+
+  // estado do provisionamento
+  provisioned   Boolean     @default(false)
+  provisionedAt DateTime?
+
+  paidAt        DateTime?
+  refundedAt    DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  items         OrderItem[]
+  entitlements  Entitlement[]
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([visOrderId])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────
+// ORDER_ITEM — item dentro da order
+// ─────────────────────────────────────────
+model OrderItem {
+  id          String   @id @default(uuid())
+  orderId     String
+  order       Order    @relation(fields: [orderId], references: [id])
+  offerId     String
+  offer       Offer    @relation(fields: [offerId], references: [id])
+  productId   String?              // se a Offer libera 1 Product, pre-resolve aqui
+  product     Product? @relation(fields: [productId], references: [id])
+
+  quantity    Int      @default(1)
+  unitPrice   Decimal  @db.Decimal(10, 2)
+  isBump      Boolean  @default(false)  // quando VIS expor a flag
+
+  @@index([orderId])
+  @@index([offerId])
+}
+
+// ─────────────────────────────────────────
+// ENTITLEMENT — direito de acesso
+// ─────────────────────────────────────────
+enum EntitlementStatus {
+  ACTIVE
+  SUSPENDED              // reembolso/chargeback pendente
+  REVOKED                // perda definitiva
+  EXPIRED                // expirou pelo expiresAt
+}
+
+model Entitlement {
+  id              String            @id @default(uuid())
+  userId          String
+  user            User              @relation(fields: [userId], references: [id])
+  productId       String
+  product         Product           @relation(fields: [productId], references: [id])
+  sourceOrderId   String
+  sourceOrder     Order             @relation(fields: [sourceOrderId], references: [id])
+
+  status          EntitlementStatus @default(ACTIVE)
+  grantedAt       DateTime          @default(now())
+  expiresAt       DateTime?                // null = vitalicio
+  suspendedAt     DateTime?
+  revokedAt       DateTime?
+  reactivatedAt   DateTime?
+
+  reason          String?                  // motivo de suspensao/revogacao
+
+  @@index([userId, status])
+  @@index([productId])
+  @@index([sourceOrderId])
+}
+
+// ─────────────────────────────────────────
+// CONTENT_ITEM — arquivo/link dentro de um Product
+// ─────────────────────────────────────────
+enum ContentItemType {
+  PDF
+  AUDIO_FILE
+  VIDEO_FILE
+  VIDEO_EMBED            // youtube, vimeo, bunny
+  EXTERNAL_LINK          // comunidade WhatsApp/Telegram
+  TEXT                   // texto rico inline
+}
+
+model ContentItem {
+  id          String          @id @default(uuid())
+  productId   String
+  product     Product         @relation(fields: [productId], references: [id])
+
+  type        ContentItemType
+  title       String
+  description String?
+
+  // por tipo:
+  fileKey     String?                  // chave no Supabase Storage (PDF, AUDIO_FILE, VIDEO_FILE)
+  externalUrl String?                  // EXTERNAL_LINK, VIDEO_EMBED
+  textContent String?                  // TEXT
+  metadata    Json?
+
+  sortOrder   Int             @default(0)
+  active      Boolean         @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  progress    Progress[]
+
+  @@index([productId])
+}
+
+// ─────────────────────────────────────────
+// ACCESS_TOKEN — token single-use pos-checkout
+// ─────────────────────────────────────────
+model AccessToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  orderId   String?              // qual order gerou (opcional pra magic links manuais)
+
+  token     String    @unique   // UUID, vai na URL
+  expiresAt DateTime             // now + 15min
+  usedAt    DateTime?            // null = nao usado ainda
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+}
+
+// ─────────────────────────────────────────
+// SESSION — sessao Lucia
+// ─────────────────────────────────────────
+model Session {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────
+// PROGRESS — consumo de ContentItem
+// ─────────────────────────────────────────
+enum ProgressStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+model Progress {
+  id              String         @id @default(uuid())
+  userId          String
+  user            User           @relation(fields: [userId], references: [id])
+  contentItemId   String
+  contentItem     ContentItem    @relation(fields: [contentItemId], references: [id])
+
+  status          ProgressStatus @default(IN_PROGRESS)
+  startedAt       DateTime       @default(now())
+  completedAt     DateTime?
+  lastAccessedAt  DateTime       @default(now())
+
+  @@unique([userId, contentItemId])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────
+// PUSH_SUBSCRIPTION — endpoint Web Push
+// ─────────────────────────────────────────
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  endpoint  String   @unique
+  keys      Json                  // { p256dh, auth }
+  userAgent String?
+  active    Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  lastUsedAt DateTime?
+
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────
+// EVENT_LOG — auditoria de eventos de negocio
+// ─────────────────────────────────────────
+model EventLog {
+  id          String   @id @default(uuid())
+  tenantId    String?
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id])
+
+  type        String              // "webhook.received", "order.provisioned", etc
+  payload     Json
+  userId      String?
+  orderId     String?
+  level       String   @default("info")  // info, warn, error
+  message     String?
+
+  createdAt DateTime @default(now())
+
+  @@index([type])
+  @@index([tenantId, createdAt])
+}
+
+// ─────────────────────────────────────────
+// WEBHOOK_DELIVERY — log de webhooks recebidos
+// ─────────────────────────────────────────
+model WebhookDelivery {
+  id              String   @id @default(uuid())
+  tenantId        String?
+  visEvent        String              // order.approved, etc
+  visDeliveryId   String?             // header X-Webhook-Delivery-Id
+  signatureValid  Boolean
+  payloadHash     String              // sha256 do payload, pra dedup
+  rawPayload      Json
+  processed       Boolean  @default(false)
+  processedAt     DateTime?
+  errorMessage    String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([payloadHash])            // idempotencia forte
+  @@index([visDeliveryId])
+  @@index([processed])
+}
