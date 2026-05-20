@@ -7,8 +7,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // pooler 6543 — runtime (Prisma Client)
+  directUrl = env("DIRECT_URL") // direct 5432 — migrations (Prisma Migrate)
 }
 
 // ─────────────────────────────────────────
@@ -20,7 +21,13 @@ model Tenant {
   name      String                   // "Missa Explicada"
   domain    String?  @unique         // "app.missaexplicada.com.br"
   branding  Json                     // { logoUrl, primaryColor, appName, themeColor, ... }
-  visWebhookSecret String?           // secret HMAC do webhook VIS deste tenant (WEBHOOK_CONTRACT.md secao 3)
+
+  // Secret HMAC-SHA256 gerado pela VIS Platform pra este tenant.
+  // Usado pra validar assinatura dos webhooks recebidos em /api/webhooks/vis.
+  // NAO em env var: arquitetura multi-tenant, cada tenant tem seu secret proprio.
+  // Pode ser null pra tenants ainda nao configurados na VIS.
+  visWebhookSecret String?
+
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -11,34 +11,36 @@ produto, sem intervenção manual.
 
 - **Node.js** 20 LTS ou superior
 - **pnpm** (package manager do projeto)
-- **Docker** + Docker Compose (PostgreSQL local de desenvolvimento)
+- Acesso a um banco **PostgreSQL** — em dev e em prod usamos **Supabase**
+  (este projeto **não usa Docker** — ver `docs/ARCHITECTURE.md` seção 3)
 
 ## Setup
 
 ```bash
-# 1. Subir o PostgreSQL local (container na porta 5433 do host)
-docker compose up -d
+# 1. Variáveis de ambiente
+cp .env.example .env
+# Preencha DATABASE_URL (pooler, porta 6543) e DIRECT_URL (direta, porta 5432)
+# com as credenciais do seu projeto Supabase.
 
-# 2. Variáveis de ambiente
-cp .env.example .env          # .env já vem com a DATABASE_URL local pronta
-
-# 3. Instalar dependências
+# 2. Instalar dependências
 pnpm install
 
-# 4. Aplicar o schema no banco (migrations) + gerar o Prisma Client
+# 3. Aplicar o schema no banco (migrations) + gerar o Prisma Client
 pnpm db:migrate
 
-# 5. Popular dados de desenvolvimento (tenant Missa Explicada + dados fake)
+# 4. Popular dados de desenvolvimento (tenant Missa Explicada + dados fake)
 pnpm db:seed
 
-# 6. Subir o servidor de desenvolvimento
+# 5. Subir o servidor de desenvolvimento
 pnpm dev
 ```
 
 App em http://localhost:3000 · Prisma Studio com `pnpm db:studio`.
 
-> **Porta do banco:** o container expõe o PostgreSQL na porta **5433** do host
-> (a 5432 estava em uso por outro projeto local). Refletido em `DATABASE_URL`.
+> **Banco — Supabase.** `DATABASE_URL` aponta para o **pooler** (porta 6543,
+> usado pelo Prisma Client em runtime) e `DIRECT_URL` para a **conexão direta**
+> (porta 5432, usada pelo Prisma Migrate). Ambos são obrigatórios. Se a senha
+> tiver caracteres especiais (`@`, `:`, `/`), use percent-encoding na URL.
 
 ## Comandos
 

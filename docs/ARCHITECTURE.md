@@ -2,7 +2,9 @@
 
 > **Documento de fundação do projeto.** Este é a "constituição" da Plataforma de Membros. Toda decisão técnica, todo prompt de Claude Code e toda discussão de feature DEVE referenciar este documento. Se algo aqui precisar mudar, a mudança é deliberada e documentada — não acidental.
 
-> **Versão:** 1.0 • **Última atualização:** Maio/2026 • **Owner:** Magno Bessa
+> **Versão:** 1.1 • **Última atualização:** Maio/2026 • **Owner:** Magno Bessa
+
+> **Changelog 1.1:** (a) Adicionada restrição absoluta sem-Docker na seção 3. (b) `DIRECT_URL` adicionado às envs e ao `datasource db` do schema. (c) Campo `visWebhookSecret` adicionado ao modelo `Tenant`.
 
 ---
 
@@ -96,6 +98,21 @@ User 1───* PushSubscription
 - Next 16.x
 - Lucia 3.x
 - Sem libs experimentais. Tudo estável.
+
+### ❌ Restrição absoluta: SEM Docker
+
+Este projeto NUNCA usa Docker — nem em dev, nem em prod. Não criar `docker-compose.yml`, não criar `Dockerfile`, não propor containers como solução pra nada.
+
+**Por quê:**
+- Máquina local de desenvolvimento (Magno) tem recurso limitado e não suporta Docker rodando confortavelmente
+- Em produção, deploys vão direto no host (Vercel cuida do build do Next.js sem container; Supabase é Postgres gerenciado)
+- Padrão do ecossistema do Magno: todos os projetos rodam diretamente no SO, sem orquestração de containers
+
+**Alternativas a usar:**
+- Postgres em dev: Supabase (recomendado) ou instalação nativa no host
+- Postgres em prod: Supabase
+- Build/deploy: Vercel (Next.js) ou DigitalOcean App Platform (se necessário no futuro)
+- Serviços auxiliares: usar SaaS gerenciado (Resend, Evolution API SaaS, etc) em vez de self-host containerizado
 
 ---
 
@@ -218,8 +235,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")     // pooler 6543 — runtime
+  directUrl = env("DIRECT_URL")        // direct 5432 — migrations
 }
 
 // ─────────────────────────────────────────
@@ -231,6 +249,13 @@ model Tenant {
   name      String                   // "Missa Explicada"
   domain    String?  @unique         // "app.missaexplicada.com.br"
   branding  Json                     // { logoUrl, primaryColor, appName, themeColor, ... }
+
+  // Secret HMAC-SHA256 gerado pela VIS Platform pra este tenant.
+  // Usado pra validar assinatura dos webhooks recebidos em /api/webhooks/vis.
+  // NÃO em env var: arquitetura multi-tenant, cada tenant tem seu secret próprio.
+  // Pode ser null pra tenants ainda não configurados na VIS.
+  visWebhookSecret String?
+
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -910,14 +935,21 @@ vis-membros/
 ## 13. Variáveis de ambiente
 
 ```bash
-# Banco
-DATABASE_URL=postgresql://...
+# Banco (Supabase Postgres)
+# DATABASE_URL: pooler (porta 6543) — usado pelo Prisma Client em runtime
+# DIRECT_URL: direct connection (porta 5432) — usado pelo Prisma Migrate
+# Ambos obrigatórios. Sem DIRECT_URL, migrations falham contra Supabase.
+DATABASE_URL="postgresql://user:password@host:6543/db?pgbouncer=true"
+DIRECT_URL="postgresql://user:password@host:5432/db"
 
 # Auth
 SESSION_SECRET=                       # 64 chars random
 
 # VIS Platform
-VIS_WEBHOOK_SECRET=                   # do tenant; multi-tenant: lookup por Tenant.visWebhookSecret no banco
+# OBS: NÃO armazenar webhook secret em env var. Cada tenant tem seu próprio
+# secret, armazenado em Tenant.visWebhookSecret no banco. Esta env var
+# existe APENAS pra um secret fallback de desenvolvimento.
+VIS_WEBHOOK_SECRET_DEV=               # opcional, fallback para tenant sem secret cadastrado
 
 # WhatsApp (Evolution API ou Z-API)
 WHATSAPP_API_URL=
