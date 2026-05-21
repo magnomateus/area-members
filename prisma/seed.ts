@@ -12,8 +12,10 @@ import { ContentItemType, PrismaClient, ProductType } from "@prisma/client";
  */
 const prisma = new PrismaClient();
 
-// ID fixo — ContentItem nao tem chave unica natural; garante idempotencia do seed.
+// IDs fixos — ContentItem nao tem chave unica natural; garantem idempotencia do seed.
 const CONTENT_ITEM_PDF_ID = "11111111-1111-1111-1111-111111111111";
+const CONTENT_ITEM_COMMUNITY_ID = "22222222-2222-2222-2222-222222222222";
+const CONTENT_ITEM_BONUS_ID = "33333333-3333-3333-3333-333333333333";
 
 async function main(): Promise<void> {
   const tenant = await prisma.tenant.upsert({
@@ -109,6 +111,83 @@ async function main(): Promise<void> {
     },
   });
 
+  // Produtos adicionais — exercitam validityDays distintos no provisionamento.
+  const community = await prisma.product.upsert({
+    where: { tenantId_slug: { tenantId: tenant.id, slug: "comunidade-whatsapp" } },
+    update: {},
+    create: {
+      tenantId: tenant.id,
+      name: "Comunidade WhatsApp Catolicos",
+      slug: "comunidade-whatsapp",
+      type: ProductType.COMMUNITY,
+      description: "Acesso ao grupo de WhatsApp da comunidade.",
+      sortOrder: 1,
+      active: true,
+    },
+  });
+
+  const bonus = await prisma.product.upsert({
+    where: { tenantId_slug: { tenantId: tenant.id, slug: "bonus-pdfs" } },
+    update: {},
+    create: {
+      tenantId: tenant.id,
+      name: "Bonus PDFs",
+      slug: "bonus-pdfs",
+      type: ProductType.BONUS_PACK,
+      description: "Pacote de PDFs bonus da Missa Explicada.",
+      sortOrder: 2,
+      active: true,
+    },
+  });
+
+  await prisma.contentItem.upsert({
+    where: { id: CONTENT_ITEM_COMMUNITY_ID },
+    update: {},
+    create: {
+      id: CONTENT_ITEM_COMMUNITY_ID,
+      productId: community.id,
+      type: ContentItemType.EXTERNAL_LINK,
+      title: "Entrar na comunidade no WhatsApp",
+      description: "Link de convite do grupo.",
+      externalUrl: "https://chat.whatsapp.com/exemplo-dev",
+      sortOrder: 0,
+      active: true,
+    },
+  });
+
+  await prisma.contentItem.upsert({
+    where: { id: CONTENT_ITEM_BONUS_ID },
+    update: {},
+    create: {
+      id: CONTENT_ITEM_BONUS_ID,
+      productId: bonus.id,
+      type: ContentItemType.PDF,
+      title: "Pacote de bonus (PDF)",
+      description: "Arquivo PDF com os bonus.",
+      fileKey: "missa-explicada/bonus-pack.pdf",
+      sortOrder: 0,
+      active: true,
+    },
+  });
+
+  // OfferProducts da Offer DEV — libera 3 produtos com validades distintas:
+  // ebook (vitalicio), comunidade (90 dias), bonus (vitalicio).
+  for (const link of [
+    { productId: product.id, validityDays: null },
+    { productId: community.id, validityDays: 90 },
+    { productId: bonus.id, validityDays: null },
+  ]) {
+    await prisma.offerProduct.upsert({
+      where: { offerId_productId: { offerId: offerDev.id, productId: link.productId } },
+      update: {},
+      create: {
+        offerId: offerDev.id,
+        productId: link.productId,
+        validityDays: link.validityDays,
+      },
+    });
+  }
+
   // User de teste — permite exercitar o fluxo de magic link sem simular webhook.
   // Sem senha (passwordHash null): autenticacao apenas por magic link.
   const user = await prisma.user.upsert({
@@ -128,8 +207,8 @@ async function main(): Promise<void> {
   console.log(
     `  Offer DEV:   ${offerDev.name} — visProductId ${offerDev.visProductId} (com webhook secret)`,
   );
-  console.log(`  Product:     ${product.name} (${product.slug})`);
-  console.log("  ContentItem: Missa Explicada — PDF principal");
+  console.log(`  Products:    ${product.name}, ${community.name}, ${bonus.name}`);
+  console.log("  OfferProducts: DEV -> ebook (vitalicio), comunidade (90d), bonus (vitalicio)");
   console.log(`  User:        ${user.name} <${user.email}>`);
 }
 

@@ -27,7 +27,9 @@ describe("AccessToken — generate / redeem", () => {
   it("gera e resgata um token, retornando o User", async () => {
     await rollbackRaw(async (tx) => {
       const userId = await createTestUser(tx);
-      const token = await generateAccessToken(userId, undefined, tx);
+      const { token, expiresAt } = await generateAccessToken(userId, undefined, tx);
+      // expiresAt fica ~15min no futuro.
+      expect(expiresAt.getTime()).toBeGreaterThan(Date.now() + 14 * 60 * 1000);
       const user = await redeemAccessToken(token, tx);
       expect(user.id).toBe(userId);
     });
@@ -36,7 +38,7 @@ describe("AccessToken — generate / redeem", () => {
   it("marca o token como usado após o resgate", async () => {
     await rollbackRaw(async (tx) => {
       const userId = await createTestUser(tx);
-      const token = await generateAccessToken(userId, undefined, tx);
+      const { token } = await generateAccessToken(userId, undefined, tx);
       await redeemAccessToken(token, tx);
       const record = await tx.accessToken.findUnique({ where: { token } });
       expect(record?.usedAt).not.toBeNull();
@@ -63,7 +65,7 @@ describe("AccessToken — generate / redeem", () => {
   it("rejeita token já utilizado (uso duplo)", async () => {
     await rollbackRaw(async (tx) => {
       const userId = await createTestUser(tx);
-      const token = await generateAccessToken(userId, undefined, tx);
+      const { token } = await generateAccessToken(userId, undefined, tx);
       await redeemAccessToken(token, tx);
       await expect(redeemAccessToken(token, tx)).rejects.toBeInstanceOf(TokenAlreadyUsedError);
     });

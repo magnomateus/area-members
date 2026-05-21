@@ -29,9 +29,15 @@ export class TokenAlreadyUsedError extends Error {
   }
 }
 
+export interface GeneratedAccessToken {
+  token: string;
+  expiresAt: Date;
+}
+
 /**
- * Gera um AccessToken para o usuário e persiste o registro.
- * Retorna apenas o token (string) — a URL é montada com `buildRedeemUrl`.
+ * Gera um AccessToken para o usuário e persiste o registro. A função que CRIA
+ * o token é a fonte da verdade sobre quando ele expira — por isso devolve
+ * `{ token, expiresAt }` (em vez de só a string).
  *
  * `client` aceita um client de transação (uso em testes / provisionamento atômico).
  */
@@ -39,17 +45,18 @@ export async function generateAccessToken(
   userId: string,
   orderId?: string,
   client: Prisma.TransactionClient = prisma,
-): Promise<string> {
+): Promise<GeneratedAccessToken> {
   const token = randomUUID();
+  const expiresAt = new Date(Date.now() + ACCESS_TOKEN_TTL_MS);
   await client.accessToken.create({
     data: {
       userId,
       orderId: orderId ?? null,
       token,
-      expiresAt: new Date(Date.now() + ACCESS_TOKEN_TTL_MS),
+      expiresAt,
     },
   });
-  return token;
+  return { token, expiresAt };
 }
 
 /**

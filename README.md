@@ -83,7 +83,7 @@ ENABLE_WEBHOOK_SIMULATOR=true pnpm dev
 curl -X POST http://localhost:3000/api/webhooks/vis/simulate \
   -H "content-type: application/json" -d '{"preset":"webhook.test"}'
 
-# Simular order.approved (na 1.3a: apenas loga — provisionamento vem na 1.3b)
+# Simular order.approved → PROVISIONA (User + Order + Entitlements + AccessToken)
 curl -X POST http://localhost:3000/api/webhooks/vis/simulate \
   -H "content-type: application/json" -d '{"preset":"approved"}'
 
@@ -98,9 +98,32 @@ Presets disponíveis: `approved`, `refunded`, `cancelled`, `chargedback`,
 `{ "preset": "...", "overrides": {...} }`. O simulador **não valida HMAC** e
 responde **404** em produção ou sem `ENABLE_WEBHOOK_SIMULATOR=true`.
 
+### Fluxo de provisionamento (order.approved → acesso)
+
+Um `order.approved` provisiona tudo numa transação atômica: `User`, `Order`,
+`OrderItems`, `Entitlements` (1 por Product liberado, com `expiresAt` conforme
+`OfferProduct.validityDays`) e um `AccessToken`. O **AccessToken nunca aparece
+na resposta do webhook** — chega ao cliente pelo polling ou (na 1.6) por
+WhatsApp/email. Em dev, o magic link é impresso no console como
+`[NOTIFICATION STUB] ...`.
+
+```bash
+# 1) Provisiona (o preset 'approved' usa o produto DEV → libera 3 produtos)
+curl -X POST http://localhost:3000/api/webhooks/vis/simulate \
+  -H "content-type: application/json" -d '{"preset":"approved"}'
+# → { "action": "provisioned", "entitlementsCreated": 3, "orderId": "...", ... }
+
+# 2) Polling — a página /obrigado (sub-fase 1.4) consumirá este endpoint
+curl "http://localhost:3000/api/orders/status?order_id=778001&email=simulado@dev.local"
+# → { "status": "ready", "accessToken": "<uuid>", "redirectUrl": "/auth/redeem?t=<uuid>" }
+```
+
+`GET /api/orders/status` responde **sempre 200** (anti-enumeração): `pending`
+enquanto não provisionado ou se o email não confere, `ready` com o token quando
+pronto, `failed` se a Order foi recusada/cancelada.
+
 Cada webhook recebido vira um registro em `WebhookDelivery` e em `EventLog`
-(visíveis no `pnpm db:studio`). O provisionamento (User/Order/Entitlements) é
-da sub-fase 1.3b — a 1.3a só recebe, valida e loga.
+(visíveis no `pnpm db:studio`).
 
 ## Comandos
 

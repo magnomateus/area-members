@@ -68,6 +68,9 @@ describe("handleVisWebhook", () => {
       const rawBody = buildPayload({ event: "webhook.test", visProductId: fx.visProductId });
       const headers = makeHeaders({ event: "webhook.test", signature: signV1(rawBody, SECRET) });
 
+      const ordersBefore = await tx.order.count();
+      const entitlementsBefore = await tx.entitlement.count();
+
       const result = await handleVisWebhook(rawBody, headers, { client: tx });
 
       expect(result.status).toBe(200);
@@ -75,17 +78,20 @@ describe("handleVisWebhook", () => {
       expect(result.body.event).toBe("webhook.test");
       expect(result.body.signatureValid).toBe(true);
 
-      const deliveries = await tx.webhookDelivery.findMany();
-      expect(deliveries).toHaveLength(1);
-      expect(deliveries[0].processed).toBe(true);
-      expect(deliveries[0].signatureValid).toBe(true);
+      const delivery = await tx.webhookDelivery.findUniqueOrThrow({
+        where: { id: String(result.body.deliveryId) },
+      });
+      expect(delivery.processed).toBe(true);
+      expect(delivery.signatureValid).toBe(true);
 
-      const eventLogs = await tx.eventLog.findMany({ where: { type: "webhook.test.received" } });
+      const eventLogs = await tx.eventLog.findMany({
+        where: { type: "webhook.test.received", tenantId: fx.tenantId },
+      });
       expect(eventLogs).toHaveLength(1);
 
-      // webhook.test NÃO provisiona.
-      expect(await tx.order.count()).toBe(0);
-      expect(await tx.entitlement.count()).toBe(0);
+      // webhook.test NÃO provisiona — contagens não mudam.
+      expect(await tx.order.count()).toBe(ordersBefore);
+      expect(await tx.entitlement.count()).toBe(entitlementsBefore);
       expect(await tx.user.findFirst({ where: { email: "x@test.local" } })).toBeNull();
     });
   });
@@ -113,7 +119,8 @@ describe("handleVisWebhook", () => {
 
       expect(first.body.duplicate).toBeUndefined();
       expect(second.body.duplicate).toBe(true);
-      expect(await tx.webhookDelivery.count()).toBe(1);
+      // Mesma WebhookDelivery (idempotência por payloadHash) — não criou outra.
+      expect(second.body.deliveryId).toBe(first.body.deliveryId);
     });
   });
 
@@ -130,7 +137,9 @@ describe("handleVisWebhook", () => {
       );
 
       expect(result.status).toBe(401);
-      const logs = await tx.eventLog.findMany({ where: { type: "webhook.signature_invalid" } });
+      const logs = await tx.eventLog.findMany({
+        where: { type: "webhook.signature_invalid", tenantId: fx.tenantId },
+      });
       expect(logs).toHaveLength(1);
     });
   });
@@ -138,6 +147,8 @@ describe("handleVisWebhook", () => {
   it("tenant não resolvível: 400 + EventLog de alerta", async () => {
     await rollbackRaw(async (tx) => {
       const rawBody = buildPayload({ event: "order.approved", visProductId: 777_000_777 });
+      // tenant não resolve → EventLog com tenantId null; usa delta-count.
+      const before = await tx.eventLog.count({ where: { type: "webhook.tenant_unresolved" } });
       const result = await handleVisWebhook(
         rawBody,
         makeHeaders({ event: "order.approved", signature: "t=1,v1=abcd" }),
@@ -145,8 +156,8 @@ describe("handleVisWebhook", () => {
       );
 
       expect(result.status).toBe(400);
-      const logs = await tx.eventLog.findMany({ where: { type: "webhook.tenant_unresolved" } });
-      expect(logs).toHaveLength(1);
+      const after = await tx.eventLog.count({ where: { type: "webhook.tenant_unresolved" } });
+      expect(after - before).toBe(1);
     });
   });
 
@@ -162,29 +173,14 @@ describe("handleVisWebhook", () => {
 
       expect(result.status).toBe(200);
       expect(result.body.action).toBe("unknown_event");
-      const logs = await tx.eventLog.findMany({ where: { type: "webhook.algo.desconhecido" } });
+      const logs = await tx.eventLog.findMany({
+        where: { type: "webhook.algo.desconhecido", tenantId: fx.tenantId },
+      });
+      expect(logs).toHaveLength(1);
       expect(logs[0]?.level).toBe("warn");
     });
   });
 
-  it("order.approved na 1.3a: 200, logged_only, sem provisionar", async () => {
-    await rollbackRaw(async (tx) => {
-      const fx = await seedTenantOffer(tx, { secret: SECRET });
-      const rawBody = buildPayload({
-        event: "order.approved",
-        visProductId: fx.visProductId,
-        orderId: 555_001,
-      });
-      const result = await handleVisWebhook(
-        rawBody,
-        makeHeaders({ event: "order.approved", signature: signV1(rawBody, SECRET) }),
-        { client: tx },
-      );
-
-      expect(result.status).toBe(200);
-      expect(result.body.action).toBe("logged_only");
-      expect(await tx.order.count()).toBe(0);
-      expect(await tx.user.findFirst({ where: { email: "x@test.local" } })).toBeNull();
-    });
-  });
+  // order.approved é exercitado em order-approved-flow.test.ts (provisiona de
+  // verdade, fora de uma transação injetada).
 });

@@ -86,7 +86,7 @@ export async function requestMagicLink(params: {
     return { status: "ok" };
   }
 
-  const token = await generateAccessToken(user.id);
+  const { token } = await generateAccessToken(user.id);
   const redeemUrl = buildRedeemUrl(token, baseUrl);
 
   // Envio real por WhatsApp/email vem na sub-fase 1.6. Por ora, só console.

@@ -309,14 +309,22 @@ export async function handleVisWebhook(
     tenantId: tenant.id,
   });
 
-  return {
-    status: 200,
-    body: {
-      ok: true,
-      event,
-      action: routed.action,
-      note: routed.note,
-      deliveryId: delivery.id,
-    },
+  // Campos seguros do roteamento — o AccessToken NUNCA entra no response.
+  const body: Record<string, unknown> = {
+    ok: true,
+    event,
+    action: routed.action,
+    note: routed.note,
+    deliveryId: delivery.id,
   };
+  if (routed.userId) body.userId = routed.userId;
+  if (routed.orderId) body.orderId = routed.orderId;
+  if (routed.entitlementsCreated !== undefined) {
+    body.entitlementsCreated = routed.entitlementsCreated;
+  }
+  if (routed.accessTokenGenerated !== undefined) {
+    body.accessTokenGenerated = routed.accessTokenGenerated;
+  }
+
+  return { status: 200, body };
 }
