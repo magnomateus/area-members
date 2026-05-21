@@ -4,8 +4,8 @@
 Automatiza o fluxo pós-compra: do pagamento aprovado ao cliente consumindo o
 produto, sem intervenção manual.
 
-> **Status:** Fase 1 · sub-fase 1.2 (proxy multi-tenant + autenticação
-> base). Ainda sem páginas de produto/home — ver [docs/PHASES.md](./docs/PHASES.md).
+> **Status:** Fase 1 · sub-fase 1.5 (página do produto + download de PDF via
+> signed URL) — ver [docs/PHASES.md](./docs/PHASES.md).
 
 ## Pré-requisitos
 
@@ -141,6 +141,27 @@ em modo mobile (largura ~375px):
 
 O `order_id` é o `visOrderId` da VIS (o número que você passou no payload), não
 o `orderId` UUID retornado pelo simulador.
+
+### Página do produto e download de PDF (telas da 1.5)
+
+Depois de logado (passo 3 acima), a home lista os produtos liberados. Clicar em
+**"Acessar"** abre `/produtos/[slug]` — a página do produto, com a lista de
+ConteúdoItems ativos. Para um item PDF, o botão **"Baixar PDF"**:
+
+1. chama `GET /api/content/[id]/signed-url` (autenticado);
+2. o endpoint valida sessão + Entitlement ativo e gera uma **signed URL** do
+   Supabase Storage **válida por 15 min** (proteção contra compartilhamento);
+3. o navegador abre o PDF numa nova aba (em mobile, no leitor nativo).
+
+O endpoint responde `{ error: { code, message } }` nos casos de erro:
+`UNAUTHENTICATED` (401), `FORBIDDEN_NO_ACCESS` (403), `CONTENT_NOT_FOUND` (404),
+`RATE_LIMITED` (429, limite de 10/min por usuário), `INVALID_CONTENT_TYPE`
+(400) e `INTERNAL_ERROR` (500).
+
+O Supabase Storage exige `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` e
+`STORAGE_BUCKET` no `.env` (ver `.env.example`). O `@supabase/supabase-js` é
+usado **apenas** para Storage e fica encapsulado em `src/lib/storage/` —
+ver [docs/DECISIONS/002-supabase-js-storage-only.md](./docs/DECISIONS/002-supabase-js-storage-only.md).
 
 ## Comandos
 

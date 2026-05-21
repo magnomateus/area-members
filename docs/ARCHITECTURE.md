@@ -2,7 +2,9 @@
 
 > **Documento de fundação do projeto.** Este é a "constituição" da Plataforma de Membros. Toda decisão técnica, todo prompt de Claude Code e toda discussão de feature DEVE referenciar este documento. Se algo aqui precisar mudar, a mudança é deliberada e documentada — não acidental.
 
-> **Versão:** 1.4 • **Última atualização:** Maio/2026 • **Owner:** Magno Bessa
+> **Versão:** 1.5 • **Última atualização:** Maio/2026 • **Owner:** Magno Bessa
+
+> **Changelog 1.5:** (a) Entrega de conteúdo via **signed URLs** do Supabase Storage — links temporários (15 min) para bucket privado, proteção contra compartilhamento. (b) Endpoint `GET /api/content/[id]/signed-url` (autenticado) e página `/produtos/[slug]`. (c) `@supabase/supabase-js` adotado **apenas para Storage**, encapsulado em `src/lib/storage/` — ver ADR 002. (d) Nova env `STORAGE_BUCKET` (default `tenant-content`) — seção 13. (e) ADR 001 revisada: seção sobre tabelas tenant-scoped transitivamente (`ContentItem` etc).
 
 > **Changelog 1.4:** (a) Adicionado `Tenant.supportWhatsapp` (E.164 sem `+`) — usado no botão de suporte WhatsApp das telas de erro do fluxo pós-compra.
 
@@ -1007,9 +1009,10 @@ WHATSAPP_INSTANCE=
 RESEND_API_KEY=
 EMAIL_FROM=
 
-# Storage
+# Storage (Supabase Storage — signed URLs de conteúdo; ver ADR 002)
 SUPABASE_URL=
-SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_SERVICE_ROLE_KEY=             # chave admin (ignora RLS) — NUNCA no frontend
+STORAGE_BUCKET=tenant-content          # bucket de conteúdo; default no código: tenant-content
 
 # Push
 VAPID_PUBLIC_KEY=

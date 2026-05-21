@@ -96,19 +96,21 @@ async function main(): Promise<void> {
     },
   });
 
+  // ContentItem PDF — `update` repete os campos para o seed ser idempotente
+  // tambem no UPDATE (com `update: {}` ele so seria idempotente no INSERT).
+  const pdfContent = {
+    productId: product.id,
+    type: ContentItemType.PDF,
+    title: "Missa Explicada — Ebook completo",
+    description: "Arquivo PDF principal do ebook.",
+    fileKey: "missa-explicada/ebook.pdf",
+    sortOrder: 0,
+    active: true,
+  };
   await prisma.contentItem.upsert({
     where: { id: CONTENT_ITEM_PDF_ID },
-    update: {},
-    create: {
-      id: CONTENT_ITEM_PDF_ID,
-      productId: product.id,
-      type: ContentItemType.PDF,
-      title: "Missa Explicada — PDF principal",
-      description: "Arquivo PDF principal do ebook.",
-      fileKey: "missa-explicada/ebook-principal.pdf",
-      sortOrder: 0,
-      active: true,
-    },
+    update: pdfContent,
+    create: { id: CONTENT_ITEM_PDF_ID, ...pdfContent },
   });
 
   // Produtos adicionais — exercitam validityDays distintos no provisionamento.
@@ -140,34 +142,37 @@ async function main(): Promise<void> {
     },
   });
 
+  // ContentItems da comunidade e do bonus — `active: false`: existem para
+  // exercitar o provisionamento, mas ainda nao sao exibidos na area de membros
+  // (so o PDF do ebook tem entrega implementada na Fase 1.5).
+  const communityContent = {
+    productId: community.id,
+    type: ContentItemType.EXTERNAL_LINK,
+    title: "Entrar na comunidade no WhatsApp",
+    description: "Link de convite do grupo.",
+    externalUrl: "https://chat.whatsapp.com/exemplo-dev",
+    sortOrder: 0,
+    active: false,
+  };
   await prisma.contentItem.upsert({
     where: { id: CONTENT_ITEM_COMMUNITY_ID },
-    update: {},
-    create: {
-      id: CONTENT_ITEM_COMMUNITY_ID,
-      productId: community.id,
-      type: ContentItemType.EXTERNAL_LINK,
-      title: "Entrar na comunidade no WhatsApp",
-      description: "Link de convite do grupo.",
-      externalUrl: "https://chat.whatsapp.com/exemplo-dev",
-      sortOrder: 0,
-      active: true,
-    },
+    update: communityContent,
+    create: { id: CONTENT_ITEM_COMMUNITY_ID, ...communityContent },
   });
 
+  const bonusContent = {
+    productId: bonus.id,
+    type: ContentItemType.PDF,
+    title: "Pacote de bonus (PDF)",
+    description: "Arquivo PDF com os bonus.",
+    fileKey: "missa-explicada/bonus-pack.pdf",
+    sortOrder: 0,
+    active: false,
+  };
   await prisma.contentItem.upsert({
     where: { id: CONTENT_ITEM_BONUS_ID },
-    update: {},
-    create: {
-      id: CONTENT_ITEM_BONUS_ID,
-      productId: bonus.id,
-      type: ContentItemType.PDF,
-      title: "Pacote de bonus (PDF)",
-      description: "Arquivo PDF com os bonus.",
-      fileKey: "missa-explicada/bonus-pack.pdf",
-      sortOrder: 0,
-      active: true,
-    },
+    update: bonusContent,
+    create: { id: CONTENT_ITEM_BONUS_ID, ...bonusContent },
   });
 
   // OfferProducts da Offer DEV — libera 3 produtos com validades distintas:
@@ -208,6 +213,7 @@ async function main(): Promise<void> {
     `  Offer DEV:   ${offerDev.name} — visProductId ${offerDev.visProductId} (com webhook secret)`,
   );
   console.log(`  Products:    ${product.name}, ${community.name}, ${bonus.name}`);
+  console.log("  ContentItems: ebook.pdf (PDF, ativo); comunidade e bonus (inativos)");
   console.log("  OfferProducts: DEV -> ebook (vitalicio), comunidade (90d), bonus (vitalicio)");
   console.log(`  User:        ${user.name} <${user.email}>`);
 }

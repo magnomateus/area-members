@@ -4,6 +4,8 @@
 - **Data:** Maio/2026
 - **Contexto da decisão:** Sub-fase 1.2 (proxy multi-tenant + auth base)
 - **Referência:** `ARCHITECTURE.md` v1.2, seção 9
+- **Revisado em:** 21/05/2026 (Fase 1.5) — adicionada seção sobre tabelas
+  tenant-scoped transitivamente.
 
 ## Contexto
 
@@ -47,6 +49,48 @@ via o pai (ex.: `ContentItem` → `Product.tenantId`).
 - `create` / `createMany`: se `tenantId` estiver no `data`, é validado contra o
   contexto; se ausente, é permitido.
 - demais operações: passam direto.
+
+## Tabelas tenant-scoped transitivamente
+
+Algumas tabelas não têm coluna `tenantId` direta, mas são tenant-scoped via FK
+para outra tabela que tem (ex.: `ContentItem` → `Product`, `OrderItem` →
+`Order`, `Entitlement` → `User`, etc).
+
+REGRA: para essas tabelas, o `scopedDb` **NÃO** auto-injeta `tenantId` (não
+existe a coluna para filtrar). A responsabilidade de garantir o isolamento de
+tenant fica **EXPLÍCITA no código**:
+
+CORRETO:
+
+```ts
+prisma.contentItem.findFirst({
+  where: { id, product: { tenantId: currentTenant.id } },
+});
+```
+
+ERRADO:
+
+```ts
+prisma.contentItem.findUnique({ where: { id } });
+// retornaria ContentItem de qualquer tenant — vaza dados
+```
+
+Tabelas atuais nessa categoria:
+
+- `ContentItem` (via `Product.tenantId`)
+- `OrderItem` (via `Order.tenantId`)
+- `Entitlement` (via `User.tenantId`, ou via `Product.tenantId` — ambos batem)
+- `Progress` (via `User.tenantId`)
+- `AccessToken` (via `User.tenantId`)
+- `OfferProduct` (via `Offer.tenantId`)
+
+Code review checklist: queries em qualquer tabela acima DEVEM ter filtro
+EXPLÍCITO via `include`/`where` aninhado, OU passar pela tabela parent que tem
+`tenantId`.
+
+> Aplicação na Fase 1.5: `hasAccessToContentItem()`
+> (`src/lib/entitlements/check.ts`) busca o `ContentItem` com
+> `where: { id, product: { tenantId } }` — exatamente o padrão acima.
 
 ## Consequências
 

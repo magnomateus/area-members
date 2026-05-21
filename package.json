@@ -25,6 +25,7 @@
   "dependencies": {
     "@lucia-auth/adapter-prisma": "^4.0.1",
     "@prisma/client": "^5.22.0",
+    "@supabase/supabase-js": "^2.106.1",
     "date-fns": "^4.1.0",
     "lucia": "^3.2.2",
     "next": "^16.0.0",
