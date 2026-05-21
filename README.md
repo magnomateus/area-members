@@ -68,6 +68,40 @@ console do servidor**:
 A página `/auth/redeem`, que consome o token e cria a sessão, chega na
 sub-fase 1.4.
 
+### Testar webhooks da VIS localmente
+
+O endpoint `POST /api/webhooks/vis` recebe os webhooks da VIS (valida HMAC-V1,
+idempotência, roteia por evento). Para testar sem a VIS real, use o **simulador**
+— habilite-o subindo o dev com a flag:
+
+```bash
+ENABLE_WEBHOOK_SIMULATOR=true pnpm dev
+```
+
+```bash
+# Simular um webhook.test (não provisiona nada; só valida e loga)
+curl -X POST http://localhost:3000/api/webhooks/vis/simulate \
+  -H "content-type: application/json" -d '{"preset":"webhook.test"}'
+
+# Simular order.approved (na 1.3a: apenas loga — provisionamento vem na 1.3b)
+curl -X POST http://localhost:3000/api/webhooks/vis/simulate \
+  -H "content-type: application/json" -d '{"preset":"approved"}'
+
+# Idempotência: enviar o MESMO payload 2x — a 2ª resposta traz "duplicate": true
+curl -X POST http://localhost:3000/api/webhooks/vis/simulate \
+  -H "content-type: application/json" \
+  -d '{"payload":{"event":"order.approved","data":{"order_id":4242,"products":[{"id":99999}],"tracking":{"src":"tenant_missa-explicada"}}}}'
+```
+
+Presets disponíveis: `approved`, `refunded`, `cancelled`, `chargedback`,
+`webhook.test`. Aceita também `{ "payload": <payload completo> }` e
+`{ "preset": "...", "overrides": {...} }`. O simulador **não valida HMAC** e
+responde **404** em produção ou sem `ENABLE_WEBHOOK_SIMULATOR=true`.
+
+Cada webhook recebido vira um registro em `WebhookDelivery` e em `EventLog`
+(visíveis no `pnpm db:studio`). O provisionamento (User/Order/Entitlements) é
+da sub-fase 1.3b — a 1.3a só recebe, valida e loga.
+
 ## Comandos
 
 | Comando           | O que faz                                            |

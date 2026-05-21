@@ -2,7 +2,9 @@
 
 > **Documento de fundação do projeto.** Este é a "constituição" da Plataforma de Membros. Toda decisão técnica, todo prompt de Claude Code e toda discussão de feature DEVE referenciar este documento. Se algo aqui precisar mudar, a mudança é deliberada e documentada — não acidental.
 
-> **Versão:** 1.2 • **Última atualização:** Maio/2026 • **Owner:** Magno Bessa
+> **Versão:** 1.3 • **Última atualização:** Maio/2026 • **Owner:** Magno Bessa
+
+> **Changelog 1.3:** (a) `webhook_secret` movido de `Tenant.visWebhookSecret` para `Offer.visWebhookSecret` — cada produto VIS tem o seu próprio secret. (b) `WebhookDelivery`: adicionados `signatureReason` (String?) e `rawHeaders` (Json) para auditoria forense completa. (c) Seção 10 clarifica a distinção entre logs operacionais e registros forenses (`payment_id`).
 
 > **Changelog 1.2:** (a) Convenção de middleware migrada para `proxy.ts` (Next 16) — roda em **Node.js runtime** por padrão. (b) Estratégia híbrida do `scoped-db` documentada — seção 9. (c) Transporte de `tenantId`: header `X-Tenant-Id` dentro de request, `AsyncLocalStorage` fora de request — seção 9. (d) Renomeação `src/middleware.ts` → `src/proxy.ts` (função `middleware` → `proxy`).
 
@@ -251,13 +253,6 @@ model Tenant {
   name      String                   // "Missa Explicada"
   domain    String?  @unique         // "app.missaexplicada.com.br"
   branding  Json                     // { logoUrl, primaryColor, appName, themeColor, ... }
-
-  // Secret HMAC-SHA256 gerado pela VIS Platform pra este tenant.
-  // Usado pra validar assinatura dos webhooks recebidos em /api/webhooks/vis.
-  // NÃO em env var: arquitetura multi-tenant, cada tenant tem seu secret próprio.
-  // Pode ser null pra tenants ainda não configurados na VIS.
-  visWebhookSecret String?
-
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -315,6 +310,12 @@ model Offer {
 
   visProductId    Int      @unique   // id na VIS (vem em products[].id no webhook)
   visProductUuid  String?            // uuid na VIS (backup, pra logs)
+
+  // Secret HMAC-SHA256 do webhook deste produto VIS. Cada produto VIS tem o
+  // seu proprio secret (a VIS modela assim). Usado pra validar a assinatura
+  // dos webhooks recebidos. Null = produto ainda nao integrado.
+  visWebhookSecret String?
+
   name            String             // "Missa Explicada Premium"
   description     String?
   price           Decimal  @db.Decimal(10, 2)
@@ -648,8 +649,10 @@ model WebhookDelivery {
   visEvent        String              // order.approved, etc
   visDeliveryId   String?             // header X-Webhook-Delivery-Id
   signatureValid  Boolean
+  signatureReason String?             // motivo se invalida: malformed | too_old | too_future | mismatch
   payloadHash     String              // sha256 do payload, pra dedup
-  rawPayload      Json
+  rawPayload      Json                // payload completo (registro forense)
+  rawHeaders      Json                // headers da request (registro forense)
   processed       Boolean  @default(false)
   processedAt     DateTime?
   errorMessage    String?
@@ -841,7 +844,7 @@ Detalhamento e justificativa em `docs/DECISIONS/001-scoped-db-strategy.md`.
 2. PDF NUNCA é servido por URL pública. Sempre signed URL com expiração de 15 min, gerada após `hasAccess`.
 3. AccessToken é single-use. Tentativa de reuso → 401 + log de incidente.
 4. Senhas (quando existirem) são Argon2id.
-5. Logs NUNCA contém: tokens, payment_id, dados de cartão.
+5. **Logs operacionais** (`console`, `EventLog.message`, mensagens de erro, breadcrumbs do Sentry) NUNCA contêm: tokens, `payment_id`, dados de cartão. **Registros forenses** (`WebhookDelivery.rawPayload`, `WebhookDelivery.rawHeaders`, `EventLog.payload`) preservam o payload completo para auditoria de fraude/disputa — esses não são "logs" no sentido desta regra.
 6. Rate limiting em endpoints públicos: `/auth/redeem` (5/min/IP), `/api/webhooks/vis` (sem limit mas com fila), `/api/auth/request-magic-link` (3/15min/email).
 7. Cookies sempre secure em prod, httpOnly, sameSite=lax.
 
@@ -987,10 +990,10 @@ DIRECT_URL="postgresql://user:password@host:5432/db"
 SESSION_SECRET=                       # 64 chars random
 
 # VIS Platform
-# OBS: NÃO armazenar webhook secret em env var. Cada tenant tem seu próprio
-# secret, armazenado em Tenant.visWebhookSecret no banco. Esta env var
-# existe APENAS pra um secret fallback de desenvolvimento.
-VIS_WEBHOOK_SECRET_DEV=               # opcional, fallback para tenant sem secret cadastrado
+# OBS: NÃO armazenar webhook secret em env var. Cada produto VIS tem seu
+# próprio secret, armazenado em Offer.visWebhookSecret no banco. Esta env
+# var existe APENAS pra um secret fallback de desenvolvimento.
+VIS_WEBHOOK_SECRET_DEV=               # opcional, fallback para produto sem secret cadastrado
 
 # WhatsApp (Evolution API ou Z-API)
 WHATSAPP_API_URL=

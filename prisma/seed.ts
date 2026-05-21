@@ -1,11 +1,12 @@
 import { ContentItemType, PrismaClient, ProductType } from "@prisma/client";
 
 /**
- * Seed de desenvolvimento — sub-fase 1.1.
+ * Seed de desenvolvimento.
  *
- * Cria o tenant "Missa Explicada" com o conjunto minimo de dados fake mas
- * estruturados (1 Offer, 1 Product, 1 OfferProduct, 1 ContentItem) para que
- * as proximas sub-fases tenham contra o que desenvolver.
+ * Cria o tenant "Missa Explicada" com dados fake mas estruturados: a Offer
+ * real (visProductId 20), a Offer DEV de testes de webhook (visProductId
+ * 99999, com visWebhookSecret), 1 Product, 1 OfferProduct, 1 ContentItem e
+ * 1 User de teste.
  *
  * Idempotente: usa `upsert` com chaves estaveis, pode rodar quantas vezes quiser.
  */
@@ -22,7 +23,6 @@ async function main(): Promise<void> {
       slug: "missa-explicada",
       name: "Missa Explicada",
       domain: "app.missaexplicada.com.br",
-      visWebhookSecret: "dev-webhook-secret-missa-explicada",
       branding: {
         appName: "Missa Explicada",
         logoUrl: "https://placehold.co/240x80?text=Missa+Explicada",
@@ -46,6 +46,26 @@ async function main(): Promise<void> {
       name: "Missa Explicada",
       description: "Oferta principal da Missa Explicada — libera o ebook em PDF.",
       price: "197.00",
+      // visWebhookSecret: null — produto real ainda nao integrado (Fase 1.7).
+      active: true,
+    },
+  });
+
+  // Offer DEV — produto fake para desenvolver/testar a integracao de webhook.
+  // O visWebhookSecret aqui e fake; quando o Mateus criar o produto DEV real
+  // na VIS, o Magno atualiza visProductId E visWebhookSecret via Prisma Studio
+  // (nao vai pra git). Ver docs/RUNBOOK.md.
+  const offerDev = await prisma.offer.upsert({
+    where: { visProductId: 99999 },
+    update: {},
+    create: {
+      tenantId: tenant.id,
+      visProductId: 99999,
+      visProductUuid: "00000000-0000-0000-0000-000000099999",
+      name: "Missa Explicada DEV",
+      description: "Produto fake para testes da integracao de webhook (Fase 1.3+).",
+      price: "1.00",
+      visWebhookSecret: "dev-webhook-secret-for-testing-only",
       active: true,
     },
   });
@@ -104,7 +124,10 @@ async function main(): Promise<void> {
 
   console.log("Seed concluido:");
   console.log(`  Tenant:      ${tenant.name} (${tenant.slug})`);
-  console.log(`  Offer:       ${offer.name} — R$ ${offer.price.toString()}`);
+  console.log(`  Offer:       ${offer.name} — visProductId ${offer.visProductId}`);
+  console.log(
+    `  Offer DEV:   ${offerDev.name} — visProductId ${offerDev.visProductId} (com webhook secret)`,
+  );
   console.log(`  Product:     ${product.name} (${product.slug})`);
   console.log("  ContentItem: Missa Explicada — PDF principal");
   console.log(`  User:        ${user.name} <${user.email}>`);

@@ -21,13 +21,6 @@ model Tenant {
   name      String                   // "Missa Explicada"
   domain    String?  @unique         // "app.missaexplicada.com.br"
   branding  Json                     // { logoUrl, primaryColor, appName, themeColor, ... }
-
-  // Secret HMAC-SHA256 gerado pela VIS Platform pra este tenant.
-  // Usado pra validar assinatura dos webhooks recebidos em /api/webhooks/vis.
-  // NAO em env var: arquitetura multi-tenant, cada tenant tem seu secret proprio.
-  // Pode ser null pra tenants ainda nao configurados na VIS.
-  visWebhookSecret String?
-
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -85,6 +78,11 @@ model Offer {
 
   visProductId    Int      @unique   // id na VIS (vem em products[].id no webhook)
   visProductUuid  String?            // uuid na VIS (backup, pra logs)
+
+  // Secret HMAC-SHA256 do webhook deste produto VIS (cada produto tem o seu).
+  // Null = produto ainda nao integrado. Ver WEBHOOK_CONTRACT.md secao 4.
+  visWebhookSecret String?
+
   name            String             // "Missa Explicada Premium"
   description     String?
   price           Decimal  @db.Decimal(10, 2)
@@ -418,8 +416,10 @@ model WebhookDelivery {
   visEvent        String              // order.approved, etc
   visDeliveryId   String?             // header X-Webhook-Delivery-Id
   signatureValid  Boolean
+  signatureReason String?             // motivo se invalida: malformed|too_old|too_future|mismatch
   payloadHash     String              // sha256 do payload, pra dedup
-  rawPayload      Json
+  rawPayload      Json                // payload completo (registro forense)
+  rawHeaders      Json                // headers da request (registro forense)
   processed       Boolean  @default(false)
   processedAt     DateTime?
   errorMessage    String?
