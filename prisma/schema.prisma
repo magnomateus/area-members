@@ -21,6 +21,7 @@ model Tenant {
   name      String                   // "Missa Explicada"
   domain    String?  @unique         // "app.missaexplicada.com.br"
   branding  Json                     // { logoUrl, primaryColor, appName, themeColor, ... }
+  supportWhatsapp String?            // WhatsApp de suporte, E.164 sem '+' (ex: 5562994350583)
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -64,7 +64,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ status: "pending" }, { status: 200 });
   }
 
-  if (order.status === OrderStatus.REFUSED || order.status === OrderStatus.CANCELLED) {
+  if (
+    order.status === OrderStatus.REFUSED ||
+    order.status === OrderStatus.CANCELLED ||
+    order.status === OrderStatus.CHARGEDBACK
+  ) {
     return NextResponse.json(
       { status: "failed", reason: order.status.toLowerCase() },
       { status: 200 },

@@ -120,10 +120,27 @@ curl "http://localhost:3000/api/orders/status?order_id=778001&email=simulado@dev
 
 `GET /api/orders/status` responde **sempre 200** (anti-enumeração): `pending`
 enquanto não provisionado ou se o email não confere, `ready` com o token quando
-pronto, `failed` se a Order foi recusada/cancelada.
+pronto, `failed` se a Order foi recusada/cancelada/chargeback.
 
 Cada webhook recebido vira um registro em `WebhookDelivery` e em `EventLog`
 (visíveis no `pnpm db:studio`).
+
+### Fluxo pós-compra no navegador (telas da 1.4)
+
+Depois de provisionar (passo acima), abra o fluxo no navegador — de preferência
+em modo mobile (largura ~375px):
+
+1. **`/obrigado?order_id=<id>&email=<email>`** — tela de polling: loader,
+   subtexto rotativo e barra de progresso (a barra é **puramente visual**). Ao
+   detectar `ready`, redireciona sozinha para `/auth/redeem`.
+2. **`/auth/redeem?t=<token>`** — Route Handler: consome o `AccessToken`, cria
+   a sessão e redireciona para `/home?first=1`. Link inválido/expirado/usado →
+   volta para `/login?reason=…` (a página mostra um aviso).
+3. **`/home?first=1`** — área de membros: modal full-screen de boas-vindas no
+   primeiro acesso + lista dos produtos liberados. "Sair" encerra a sessão.
+
+O `order_id` é o `visOrderId` da VIS (o número que você passou no payload), não
+o `orderId` UUID retornado pelo simulador.
 
 ## Comandos
 

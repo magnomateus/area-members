@@ -2,7 +2,9 @@
 
 > **Documento de fundação do projeto.** Este é a "constituição" da Plataforma de Membros. Toda decisão técnica, todo prompt de Claude Code e toda discussão de feature DEVE referenciar este documento. Se algo aqui precisar mudar, a mudança é deliberada e documentada — não acidental.
 
-> **Versão:** 1.3 • **Última atualização:** Maio/2026 • **Owner:** Magno Bessa
+> **Versão:** 1.4 • **Última atualização:** Maio/2026 • **Owner:** Magno Bessa
+
+> **Changelog 1.4:** (a) Adicionado `Tenant.supportWhatsapp` (E.164 sem `+`) — usado no botão de suporte WhatsApp das telas de erro do fluxo pós-compra.
 
 > **Changelog 1.3:** (a) `webhook_secret` movido de `Tenant.visWebhookSecret` para `Offer.visWebhookSecret` — cada produto VIS tem o seu próprio secret. (b) `WebhookDelivery`: adicionados `signatureReason` (String?) e `rawHeaders` (Json) para auditoria forense completa. (c) Seção 10 clarifica a distinção entre logs operacionais e registros forenses (`payment_id`).
 
@@ -253,6 +255,7 @@ model Tenant {
   name      String                   // "Missa Explicada"
   domain    String?  @unique         // "app.missaexplicada.com.br"
   branding  Json                     // { logoUrl, primaryColor, appName, themeColor, ... }
+  supportWhatsapp String?            // WhatsApp de suporte, E.164 sem '+' (ex: 5562994350583)
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
