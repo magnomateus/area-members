@@ -46,3 +46,7 @@ desktop.ini
 
 # Deploy
 .vercel
+
+# Scripts de desenvolvimento — utilitarios locais de operacao/diagnostico.
+# Ferramenta do desenvolvedor, nao codigo do produto. Ver docs/RUNBOOK.md.
+scripts/

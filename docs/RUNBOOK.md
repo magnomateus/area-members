@@ -41,3 +41,29 @@ Todo webhook recebido gera um registro em `WebhookDelivery` (técnico/forense:
 e em `EventLog` (evento de negócio). Para investigar uma falha, consulte
 `WebhookDelivery` pelo `payloadHash` ou `visDeliveryId` e veja `errorMessage` /
 `signatureReason`.
+
+---
+
+## Ferramentas de desenvolvimento (`scripts/`)
+
+A pasta `scripts/` guarda utilitários locais de operação e diagnóstico. Eles
+**não são versionados** (constam no `.gitignore`): são ferramenta do
+desenvolvedor, não código do produto. Esta seção documenta os que estão em uso
+— recrie-os localmente conforme a necessidade.
+
+### `scripts/eventlog.ts` — inspecionar o `EventLog`
+
+Imprime os últimos registros de `EventLog` (auditoria de eventos de negócio),
+do mais antigo para o mais recente. Útil em testes manuais — por exemplo,
+confirmar que `content.accessed` foi gravado ao baixar um PDF, ou acompanhar
+`order.provisioned` depois de simular um webhook.
+
+```bash
+pnpm exec tsx scripts/eventlog.ts                      # últimos 5
+pnpm exec tsx scripts/eventlog.ts 15                   # últimos 15
+pnpm exec tsx scripts/eventlog.ts 10 content.accessed  # filtra por type
+```
+
+Cada linha mostra timestamp, `level`, `type`, `message`, `userId` e `payload`.
+Alternativa visual: `pnpm db:studio` → modelo `EventLog` → ordenar por
+`createdAt` desc.
