@@ -58,7 +58,7 @@ trade-off. Mudanças no escopo exigem reabertura formal.
 |------|------|--------|
 | 0 | Pré-requisitos VIS | ✅ Concluído |
 | 1.1-1.5 | MVP de compra → acesso (1 produto) | ✅ Em produção no GitHub |
-| **5** | **Admin Dashboard (alto nível)** | 🟡 **Próxima** |
+| **5** | **Admin Dashboard (alto nível)** | 🟡 **Em andamento — 5.0 ✅** |
 | 1.6 | Notificações WhatsApp + email reais (via admin) | ⏳ Após Fase 5 |
 | 1.7 | Deploy em produção + primeiro cliente real | ⏳ Após Fase 1.6 |
 | 2 | Multi-produto por oferta + Bônus | ⏳ Futura |
@@ -70,6 +70,9 @@ trade-off. Mudanças no escopo exigem reabertura formal.
 **Mudança importante de ordem (v2):** Fase 5 (Admin) sobe pra ANTES de 1.6 
 e 1.7. Razão: Magno é operador estabelecido (R$100k vendidos) que precisa 
 de admin completo pra operar plataforma de alto nível, não MVP.
+
+**Próxima: Sub-fase 5.2** (Products + ContentItems). Sub-fase 5.1 (Offers) 
+em espera do endpoint VIS do Mateus.
 
 ---
 
@@ -100,6 +103,18 @@ Seed atualizado: Comunidade WhatsApp deletada, Bônus PDFs desativado
 
 ### ✅ Housekeeping (commit 8f02178)
 .gitignore do scripts/ + documentação do helper de EventLog no RUNBOOK.
+
+### ✅ Sub-fase 5.0 — Fundação do Admin (commit 6cd5f2f)
+AdminUser, AdminSession, AdminMagicLink, AdminAuditLog no schema 
+(migration aditiva). Auth admin via magic link com hash SHA-256 + 
+sessão Lucia separada (cookie admin_session, 7 dias rolling). 
+Anti-enumeração + rate limit 5/15min + tempo constante 250ms no 
+/api/admin/auth/request. shadcn/ui setup (ADR 003) compatível com 
+Tailwind v3. Layout sidebar fixa + topbar + user menu. 9 seções com 
+8 placeholders. Audit log core capturando ADMIN_LOGIN_REQUESTED, 
+ADMIN_LOGIN_SUCCESS, ADMIN_LOGIN_FAILED, ADMIN_LOGOUT com ip + 
+user-agent. 124 testes verdes (era 105 + 19 novos). 50 arquivos, 
++3477 −5.
 
 ---
 
