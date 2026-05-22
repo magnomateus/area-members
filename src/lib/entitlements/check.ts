@@ -77,3 +77,38 @@ export async function hasAccessToContentItem(
   const access = await hasAccess(userId, product.id, client);
   return { contentItem, product, hasAccess: access };
 }
+
+/**
+ * Lista os Products que o usuário pode consumir agora — base da home.
+ *
+ * Considera apenas Entitlements ATIVOS e não expirados e, dentro deles, apenas
+ * Products `active`. Products inativos (ex.: Bônus aguardando configuração via
+ * Admin) não aparecem pro cliente, mesmo que o user tenha entitlement.
+ *
+ * Faz dedup por Product — uma re-compra gera vários Entitlements do mesmo
+ * Product. Ordena pela concessão mais recente.
+ */
+export async function listActiveEntitledProducts(
+  userId: string,
+  client: DbClient = prisma,
+): Promise<Product[]> {
+  const entitlements = await client.entitlement.findMany({
+    where: {
+      userId,
+      status: "ACTIVE",
+      OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      product: { active: true },
+    },
+    include: { product: true },
+    orderBy: { grantedAt: "desc" },
+  });
+
+  const seenProductIds = new Set<string>();
+  const products: Product[] = [];
+  for (const entitlement of entitlements) {
+    if (seenProductIds.has(entitlement.productId)) continue;
+    seenProductIds.add(entitlement.productId);
+    products.push(entitlement.product);
+  }
+  return products;
+}

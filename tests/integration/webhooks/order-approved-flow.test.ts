@@ -80,7 +80,7 @@ describe("fluxo order.approved (handler → provision)", () => {
 
     expect(result.status).toBe(200);
     expect(result.body.action).toBe("provisioned");
-    expect(result.body.entitlementsCreated).toBe(3); // ebook + comunidade + bônus
+    expect(result.body.entitlementsCreated).toBe(2); // ebook + bônus
     expect(result.body.accessTokenGenerated).toBe(true);
     // O token NUNCA aparece no response do handler.
     expect(result.body.accessToken).toBeUndefined();
@@ -94,7 +94,7 @@ describe("fluxo order.approved (handler → provision)", () => {
     expect(order.provisioned).toBe(true);
     expect(order.user.email).toBe(customerEmail);
     expect(order.items).toHaveLength(1);
-    expect(order.entitlements).toHaveLength(3);
+    expect(order.entitlements).toHaveLength(2);
     expect(order.entitlements.every((e) => e.status === "ACTIVE")).toBe(true);
 
     const tokens = await testPrisma.accessToken.findMany({ where: { orderId: order.id } });
@@ -132,11 +132,11 @@ describe("fluxo order.approved (handler → provision)", () => {
 
     expect(result.status).toBe(200);
     expect(result.body.action).toBe("already_provisioned");
-    // Continua só 1 Order e 3 Entitlements.
+    // Continua só 1 Order e 2 Entitlements.
     const order = await testPrisma.order.findUniqueOrThrow({
       where: { visOrderId },
       include: { entitlements: true },
     });
-    expect(order.entitlements).toHaveLength(3);
+    expect(order.entitlements).toHaveLength(2);
   });
 });

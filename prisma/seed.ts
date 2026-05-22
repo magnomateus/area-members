@@ -5,8 +5,8 @@ import { ContentItemType, PrismaClient, ProductType } from "@prisma/client";
  *
  * Cria o tenant "Missa Explicada" com dados fake mas estruturados: a Offer
  * real (visProductId 20), a Offer DEV de testes de webhook (visProductId
- * 99999, com visWebhookSecret), 1 Product, 1 OfferProduct, 1 ContentItem e
- * 1 User de teste.
+ * 99999, com visWebhookSecret), os Products (ebook ativo, bonus inativo),
+ * seus ContentItems, OfferProducts e 1 User de teste.
  *
  * Idempotente: usa `upsert` com chaves estaveis, pode rodar quantas vezes quiser.
  */
@@ -14,7 +14,6 @@ const prisma = new PrismaClient();
 
 // IDs fixos — ContentItem nao tem chave unica natural; garantem idempotencia do seed.
 const CONTENT_ITEM_PDF_ID = "11111111-1111-1111-1111-111111111111";
-const CONTENT_ITEM_COMMUNITY_ID = "22222222-2222-2222-2222-222222222222";
 const CONTENT_ITEM_BONUS_ID = "33333333-3333-3333-3333-333333333333";
 
 async function main(): Promise<void> {
@@ -37,6 +36,24 @@ async function main(): Promise<void> {
       active: true,
     },
   });
+
+  // ── Limpeza: produto "Comunidade WhatsApp" foi descontinuado ──
+  // Decisao do Magno (pre-Fase 5): a Comunidade nao faz parte do catalogo —
+  // nem ativa, nem inativa. Removemos o Product e tudo que depende dele para
+  // que qualquer banco de dev convirja para o estado atual do seed.
+  const discontinued = await prisma.product.findUnique({
+    where: { tenantId_slug: { tenantId: tenant.id, slug: "comunidade-whatsapp" } },
+    include: { contentItems: { select: { id: true } } },
+  });
+  if (discontinued) {
+    const contentItemIds = discontinued.contentItems.map((item) => item.id);
+    await prisma.progress.deleteMany({ where: { contentItemId: { in: contentItemIds } } });
+    await prisma.contentItem.deleteMany({ where: { productId: discontinued.id } });
+    await prisma.entitlement.deleteMany({ where: { productId: discontinued.id } });
+    await prisma.offerProduct.deleteMany({ where: { productId: discontinued.id } });
+    await prisma.product.delete({ where: { id: discontinued.id } });
+    console.log('  Limpeza:     Product "Comunidade WhatsApp" removido (descontinuado).');
+  }
 
   const offer = await prisma.offer.upsert({
     where: { visProductId: 20 },
@@ -113,53 +130,24 @@ async function main(): Promise<void> {
     create: { id: CONTENT_ITEM_PDF_ID, ...pdfContent },
   });
 
-  // Produtos adicionais — exercitam validityDays distintos no provisionamento.
-  const community = await prisma.product.upsert({
-    where: { tenantId_slug: { tenantId: tenant.id, slug: "comunidade-whatsapp" } },
-    update: {},
-    create: {
-      tenantId: tenant.id,
-      name: "Comunidade WhatsApp Catolicos",
-      slug: "comunidade-whatsapp",
-      type: ProductType.COMMUNITY,
-      description: "Acesso ao grupo de WhatsApp da comunidade.",
-      sortOrder: 1,
-      active: true,
-    },
-  });
-
+  // Produto Bonus — `active: false`: o Magno tem os bonus, mas vai cadastra-los
+  // pelo Admin Dashboard (Fase 5). Ate la o Product fica inativo e nao aparece
+  // pro cliente; quem comprar a Offer DEV ainda ganha o entitlement.
   const bonus = await prisma.product.upsert({
     where: { tenantId_slug: { tenantId: tenant.id, slug: "bonus-pdfs" } },
-    update: {},
+    update: { active: false },
     create: {
       tenantId: tenant.id,
       name: "Bonus PDFs",
       slug: "bonus-pdfs",
       type: ProductType.BONUS_PACK,
       description: "Pacote de PDFs bonus da Missa Explicada.",
-      sortOrder: 2,
-      active: true,
+      sortOrder: 1,
+      active: false,
     },
   });
 
-  // ContentItems da comunidade e do bonus — `active: false`: existem para
-  // exercitar o provisionamento, mas ainda nao sao exibidos na area de membros
-  // (so o PDF do ebook tem entrega implementada na Fase 1.5).
-  const communityContent = {
-    productId: community.id,
-    type: ContentItemType.EXTERNAL_LINK,
-    title: "Entrar na comunidade no WhatsApp",
-    description: "Link de convite do grupo.",
-    externalUrl: "https://chat.whatsapp.com/exemplo-dev",
-    sortOrder: 0,
-    active: false,
-  };
-  await prisma.contentItem.upsert({
-    where: { id: CONTENT_ITEM_COMMUNITY_ID },
-    update: communityContent,
-    create: { id: CONTENT_ITEM_COMMUNITY_ID, ...communityContent },
-  });
-
+  // ContentItem do bonus — `active: false` em linha com o Product inativo.
   const bonusContent = {
     productId: bonus.id,
     type: ContentItemType.PDF,
@@ -175,11 +163,11 @@ async function main(): Promise<void> {
     create: { id: CONTENT_ITEM_BONUS_ID, ...bonusContent },
   });
 
-  // OfferProducts da Offer DEV — libera 3 produtos com validades distintas:
-  // ebook (vitalicio), comunidade (90 dias), bonus (vitalicio).
+  // OfferProducts da Offer DEV — libera 2 produtos vitalicios: ebook e bonus.
+  // Quem comprar ganha entitlement de ambos; o bonus fica invisivel na home
+  // ate o admin ativa-lo (Fase 5).
   for (const link of [
     { productId: product.id, validityDays: null },
-    { productId: community.id, validityDays: 90 },
     { productId: bonus.id, validityDays: null },
   ]) {
     await prisma.offerProduct.upsert({
@@ -212,9 +200,9 @@ async function main(): Promise<void> {
   console.log(
     `  Offer DEV:   ${offerDev.name} — visProductId ${offerDev.visProductId} (com webhook secret)`,
   );
-  console.log(`  Products:    ${product.name}, ${community.name}, ${bonus.name}`);
-  console.log("  ContentItems: ebook.pdf (PDF, ativo); comunidade e bonus (inativos)");
-  console.log("  OfferProducts: DEV -> ebook (vitalicio), comunidade (90d), bonus (vitalicio)");
+  console.log(`  Products:    ${product.name} (ativo), ${bonus.name} (inativo)`);
+  console.log("  ContentItems: ebook.pdf (PDF, ativo); bonus-pack.pdf (PDF, inativo)");
+  console.log("  OfferProducts: DEV -> ebook (vitalicio), bonus (vitalicio)");
   console.log(`  User:        ${user.name} <${user.email}>`);
 }
 

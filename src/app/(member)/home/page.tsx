@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { getSession } from "@/lib/auth/session";
-import { prisma } from "@/lib/db";
+import { listActiveEntitledProducts } from "@/lib/entitlements/check";
 import { WelcomeModal } from "./welcome-modal";
 
 /**
- * Home da área de membros — versão mínima (a UI completa vem na 1.5).
- * Lista os Products com Entitlement ACTIVE do usuário.
+ * Home da área de membros. Lista os Products que o usuário tem direito de
+ * consumir — Entitlement ACTIVE não expirado e Product ativo.
  */
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -17,25 +17,9 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
   const { user } = await getSession();
   if (!user) return null;
 
-  const entitlements = await prisma.entitlement.findMany({
-    where: {
-      userId: user.id,
-      status: "ACTIVE",
-      OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-    },
-    include: { product: true },
-    orderBy: { grantedAt: "desc" },
-  });
-
-  // Dedup por Product — re-compra gera vários Entitlements do mesmo Product.
-  const seenProductIds = new Set<string>();
-  const products = entitlements
-    .filter((entitlement) => {
-      if (seenProductIds.has(entitlement.productId)) return false;
-      seenProductIds.add(entitlement.productId);
-      return true;
-    })
-    .map((entitlement) => entitlement.product);
+  // Products inativos (ex: Bônus aguardando configuração via Admin)
+  // não aparecem pro cliente, mesmo se o user tiver entitlement.
+  const products = await listActiveEntitledProducts(user.id);
 
   return (
     <>
