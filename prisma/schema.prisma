@@ -431,3 +431,88 @@ model WebhookDelivery {
   @@index([visDeliveryId])
   @@index([processed])
 }
+
+// ─────────────────────────────────────────
+// ADMIN — painel administrativo (Fase 5)
+// As entidades do admin sao SEPARADAS das do cliente final (User, Session,
+// AccessToken). Schema separado, logica separada, cookie separado
+// (admin_session vs auth_session). Ver docs/PHASES.md "Sub-fase 5.0".
+// ─────────────────────────────────────────
+enum AdminRole {
+  ADMIN                  // acesso total; preparado para OPERATOR/VIEWER no futuro
+}
+
+model AdminUser {
+  id          String    @id @default(cuid())
+  email       String    @unique
+  name        String?
+  role        AdminRole @default(ADMIN)
+  active      Boolean   @default(true)
+  lastLoginAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions   AdminSession[]
+  magicLinks AdminMagicLink[]
+  auditLogs  AdminAuditLog[]
+}
+
+model AdminSession {
+  id        String   @id
+
+  // `userId` (coluna) + `adminUser` (relation) sao os nomes que o
+  // @lucia-auth/adapter-prisma espera: a FK escalar e hardcoded como `userId`
+  // e o relation field e derivado do nome do model de user (AdminUser ->
+  // adminUser). Ambos apontam para AdminUser — NAO para o User do cliente. A
+  // separacao Admin/Cliente e garantida por tabela, model, cookie e instancia
+  // Lucia (adminLucia) distintos.
+  userId    String
+  adminUser AdminUser @relation(fields: [userId], references: [id])
+
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model AdminMagicLink {
+  id          String    @id @default(cuid())
+  adminUserId String
+  adminUser   AdminUser @relation(fields: [adminUserId], references: [id])
+
+  tokenHash   String    @unique   // SHA-256 do token; o token bruto so vai na URL
+  expiresAt   DateTime            // now + 15min
+  usedAt      DateTime?           // null = ainda nao usado
+
+  createdAt DateTime @default(now())
+
+  @@index([adminUserId])
+}
+
+model AdminAuditLog {
+  id          String     @id @default(cuid())
+
+  // Nullable: tentativas anonimas/falhas (email inexistente, token invalido)
+  // tambem sao auditadas — nesses casos nao ha AdminUser resolvido.
+  adminUserId String?
+  adminUser   AdminUser? @relation(fields: [adminUserId], references: [id])
+
+  action      String              // ex: "ADMIN_LOGIN_SUCCESS", "PRODUCT_DELETED"
+  entityType  String              // ex: "AdminSession", "Product"
+  entityId    String              // id da entidade afetada
+  before      Json?               // valor antes da acao
+  after       Json?               // valor depois da acao
+  reason      String?             // motivo informado pelo admin
+
+  ipAddress   String?
+  userAgent   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([adminUserId, createdAt(sort: Desc)])
+  @@index([entityType, entityId])
+  @@index([action])
+}

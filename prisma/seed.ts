@@ -1,4 +1,4 @@
-import { ContentItemType, PrismaClient, ProductType } from "@prisma/client";
+import { AdminRole, ContentItemType, PrismaClient, ProductType } from "@prisma/client";
 
 /**
  * Seed de desenvolvimento.
@@ -15,6 +15,9 @@ const prisma = new PrismaClient();
 // IDs fixos — ContentItem nao tem chave unica natural; garantem idempotencia do seed.
 const CONTENT_ITEM_PDF_ID = "11111111-1111-1111-1111-111111111111";
 const CONTENT_ITEM_BONUS_ID = "33333333-3333-3333-3333-333333333333";
+
+// Id fixo do AdminUser master — idempotencia mesmo se ADMIN_MAGNO_EMAIL mudar.
+const ADMIN_SEED_ID = "seed-admin-magno";
 
 async function main(): Promise<void> {
   const tenant = await prisma.tenant.upsert({
@@ -194,6 +197,22 @@ async function main(): Promise<void> {
     },
   });
 
+  // AdminUser master — painel administrativo (Fase 5). Tabela SEPARADA do User
+  // do cliente. Idempotente por um id fixo: se ADMIN_MAGNO_EMAIL mudar, o email
+  // do mesmo registro e atualizado (nao cria admin duplicado).
+  const adminEmail = (process.env.ADMIN_MAGNO_EMAIL ?? "magno@dev.local").trim().toLowerCase();
+  const adminFields = {
+    email: adminEmail,
+    name: "Magno Bessa",
+    role: AdminRole.ADMIN,
+    active: true,
+  };
+  const admin = await prisma.adminUser.upsert({
+    where: { id: ADMIN_SEED_ID },
+    update: adminFields,
+    create: { id: ADMIN_SEED_ID, ...adminFields },
+  });
+
   console.log("Seed concluido:");
   console.log(`  Tenant:      ${tenant.name} (${tenant.slug})`);
   console.log(`  Offer:       ${offer.name} — visProductId ${offer.visProductId}`);
@@ -204,6 +223,7 @@ async function main(): Promise<void> {
   console.log("  ContentItems: ebook.pdf (PDF, ativo); bonus-pack.pdf (PDF, inativo)");
   console.log("  OfferProducts: DEV -> ebook (vitalicio), bonus (vitalicio)");
   console.log(`  User:        ${user.name} <${user.email}>`);
+  console.log(`  AdminUser:   ${admin.name} <${admin.email}> (${admin.role})`);
 }
 
 main()
