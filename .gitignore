@@ -52,3 +52,12 @@ desktop.ini
 # Scripts de desenvolvimento — utilitarios locais de operacao/diagnostico.
 # Ferramenta do desenvolvedor, nao codigo do produto. Ver docs/RUNBOOK.md.
 scripts/
+
+# Storage local (Fase 2 da migracao) — arquivos sao locais; estrutura da pasta
+# e versionada via .gitkeep + README.
+storage/files/*
+!storage/files/.gitkeep
+!storage/files/README.md
+!storage/files/*/
+storage/files/*/*
+!storage/files/*/.gitkeep

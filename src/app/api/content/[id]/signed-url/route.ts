@@ -66,7 +66,7 @@ export async function GET(
       );
     }
     // StorageObjectNotFoundError / StorageError / qualquer inesperado → 500.
-    // O core já registrou EventLog level=error quando o arquivo sumiu do bucket.
+    // O core já registrou EventLog level=error quando o arquivo sumiu do storage.
     console.error(
       "[signed-url] erro inesperado:",
       error instanceof Error ? error.name : "desconhecido",

@@ -1,12 +1,8 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { hasAccessToContentItem } from "@/lib/entitlements/check";
-import {
-  DEFAULT_SIGNED_URL_EXPIRY_SEC,
-  StorageObjectNotFoundError,
-  createSignedUrl,
-  getStorageBucket,
-} from "./signed-urls";
+import { StorageObjectNotFoundError, fileExists } from "./local-storage";
+import { DEFAULT_SIGNED_URL_EXPIRY_SEC, createSignedUrl } from "./signed-urls-hmac";
 
 /**
  * Core de "gerar signed URL para um ContentItem".
@@ -114,27 +110,24 @@ export async function getContentSignedUrl(
     throw new InvalidContentTypeError();
   }
 
-  const bucket = getStorageBucket();
-  let signed;
-  try {
-    signed = await createSignedUrl(bucket, contentItem.fileKey, DEFAULT_SIGNED_URL_EXPIRY_SEC);
-  } catch (error) {
-    if (error instanceof StorageObjectNotFoundError) {
-      // O `fileKey` aponta para um arquivo que sumiu do bucket — situação
-      // crítica de dados. Registra com level=error para alerta interno.
-      await client.eventLog.create({
-        data: {
-          tenantId,
-          type: "content.file_missing",
-          level: "error",
-          message: `fileKey "${contentItem.fileKey}" não existe no bucket "${bucket}".`,
-          payload: { contentItemId, fileKey: contentItem.fileKey, bucket },
-          userId,
-        },
-      });
-    }
-    throw error;
+  // Verifica que o arquivo existe no filesystem ANTES de assinar a URL. Se
+  // não existe, é situação crítica (registro do banco aponta para arquivo
+  // sumido) — registra com level=error e propaga o erro.
+  if (!(await fileExists(contentItem.fileKey))) {
+    await client.eventLog.create({
+      data: {
+        tenantId,
+        type: "content.file_missing",
+        level: "error",
+        message: `fileKey "${contentItem.fileKey}" não existe no storage local.`,
+        payload: { contentItemId, fileKey: contentItem.fileKey },
+        userId,
+      },
+    });
+    throw new StorageObjectNotFoundError(contentItem.fileKey);
   }
+
+  const signed = createSignedUrl(contentItem.fileKey, DEFAULT_SIGNED_URL_EXPIRY_SEC);
 
   // Marca consumo do conteúdo. upsert pela @@unique([userId, contentItemId]).
   await client.progress.upsert({

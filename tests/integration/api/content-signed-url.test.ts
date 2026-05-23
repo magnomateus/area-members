@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { mkdir, stat, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { ContentItemType, type Prisma, OrderStatus, ProductType } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -7,6 +9,7 @@ import {
   InvalidContentTypeError,
   getContentSignedUrl,
 } from "@/lib/storage/get-content-signed-url";
+import { getStoragePath } from "@/lib/storage/local-storage";
 import { rollbackRaw, testPrisma } from "../../helpers/db";
 
 /**
@@ -14,9 +17,11 @@ import { rollbackRaw, testPrisma } from "../../helpers/db";
  * é só uma casca — não exercitável no vitest porque depende de `cookies()`).
  *
  * Cada teste roda numa transação revertida (`rollbackRaw`); o caso de sucesso
- * faz uma chamada HTTP real ao Supabase Storage para o `ebook.pdf` seedado.
+ * exige que `storage/files/missa-explicada/ebook.pdf` exista — o `beforeAll`
+ * cria um PDF dummy se não estiver lá (fixture de dev).
  */
 const SEEDED_PDF_CONTENT_ITEM_ID = "11111111-1111-1111-1111-111111111111";
+const SEEDED_PDF_FILE_KEY = "missa-explicada/ebook.pdf";
 
 let tenantId = "";
 let ebookProductId = "";
@@ -28,6 +33,17 @@ beforeAll(async () => {
     where: { tenantId, slug: "ebook-missa-explicada" },
   });
   ebookProductId = product.id;
+
+  // Garante que o ebook.pdf seedado existe no filesystem. Em dev, esse PDF
+  // é colocado manualmente; aqui criamos um dummy se ausente para o teste
+  // poder rodar mesmo num clone fresco.
+  const fullPath = path.join(path.resolve(getStoragePath()), SEEDED_PDF_FILE_KEY);
+  try {
+    await stat(fullPath);
+  } catch {
+    await mkdir(path.dirname(fullPath), { recursive: true });
+    await writeFile(fullPath, Buffer.from("%PDF-1.4\n%dummy seed fixture\n", "utf8"));
+  }
 });
 
 afterAll(async () => {
@@ -79,7 +95,7 @@ describe("getContentSignedUrl", () => {
         client: tx,
       });
 
-      expect(result.url).toContain("/object/sign/");
+      expect(result.url).toMatch(/^\/api\/files\/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
       expect(result.title).toBe("Missa Explicada — Ebook completo");
       expect(result.expiresAt.getTime()).toBeGreaterThan(Date.now());
 
