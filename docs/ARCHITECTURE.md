@@ -2,7 +2,9 @@
 
 > **Documento de fundação do projeto.** Este é a "constituição" da Plataforma de Membros. Toda decisão técnica, todo prompt de Claude Code e toda discussão de feature DEVE referenciar este documento. Se algo aqui precisar mudar, a mudança é deliberada e documentada — não acidental.
 
-> **Versão:** 1.5 • **Última atualização:** Maio/2026 • **Owner:** Magno Bessa
+> **Versão:** 1.6 • **Última atualização:** Maio/2026 • **Owner:** Magno Bessa
+
+> **Changelog 1.6 (23/05/2026):** Migração para infra unificada com a VIS Platform. (a) **Banco** Postgres/Supabase → **MySQL 8 no droplet Titan** (banco `vis_membros` isolado); `directUrl` removido do datasource (era workaround do pgbouncer) — ver [ADR 005](./DECISIONS/005-banco-mysql-titan.md). (b) **Storage** Supabase Storage → **filesystem local** com signed URLs **HMAC-SHA256 nativas** (`src/lib/storage/local-storage.ts` + `signed-urls-hmac.ts`); `@supabase/supabase-js` **removido**; endpoint `GET /api/files/[token]` serve com anti-enumeração (404 silente em qualquer falha) — ver [ADR 004](./DECISIONS/004-storage-filesystem-local.md). (c) **Deploy** Vercel + Supabase → **PM2 + nginx no Titan**, domínio de produção `membros.visplatform.pro`. (d) **Envs** novas: `STORAGE_PATH`, `STORAGE_SIGN_SECRET`. Removidas: `DIRECT_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `STORAGE_BUCKET`. (e) **ADR 002 marcada SUPERSEDED** por ADR 004.
 
 > **Changelog 1.5:** (a) Entrega de conteúdo via **signed URLs** do Supabase Storage — links temporários (15 min) para bucket privado, proteção contra compartilhamento. (b) Endpoint `GET /api/content/[id]/signed-url` (autenticado) e página `/produtos/[slug]`. (c) `@supabase/supabase-js` adotado **apenas para Storage**, encapsulado em `src/lib/storage/` — ver ADR 002. (d) Nova env `STORAGE_BUCKET` (default `tenant-content`) — seção 13. (e) ADR 001 revisada: seção sobre tabelas tenant-scoped transitivamente (`ContentItem` etc).
 
@@ -88,16 +90,16 @@ User 1───* PushSubscription
 |--------|------------|---------------|
 | Framework | Next.js 16 (App Router, Server Components, Server Actions) | Mesmo stack do vis-dashboard. Curva zero. |
 | Linguagem | TypeScript (strict mode) | Não-negociável. Type safety previne bugs em multi-tenant. |
-| Banco | PostgreSQL via Supabase (projeto separado do vis-dashboard) | Já domina, RLS opcional, backup automático. |
+| Banco | **MySQL 8 no droplet Titan** (banco `vis_membros` isolado, mesmo host da VIS Platform) | Unificação operacional com VIS; dev local via Scoop. Ver [ADR 005](./DECISIONS/005-banco-mysql-titan.md). |
 | ORM | Prisma | Mesmo do vis-dashboard. Type-safe. |
 | Auth | Lucia Auth v3 + JWT em cookie httpOnly | Controle total, sem amarras. |
-| Storage | Supabase Storage com signed URLs (15min) | Proteção contra compartilhamento de links de PDF. |
+| Storage | **Filesystem local + signed URLs HMAC-SHA256 nativas** (15min) | Zero dep externa; lock-in zero. Ver [ADR 004](./DECISIONS/004-storage-filesystem-local.md). |
 | PWA | next-pwa + Workbox | Manifest dinâmico por tenant. Instalável no celular. |
 | Push | Web Push API (VAPID) + biblioteca `web-push` | Funciona iOS 16.4+ e Android. |
 | Email | Resend OU Microsoft Graph (Grupo 3RN) | Reaproveitar infra existente. |
 | WhatsApp | Evolution API ou Z-API | Magno já tem familiaridade. |
 | Observabilidade | Sentry + logs estruturados (pino) + EventLog interno | Tudo auditável. |
-| Deploy | Vercel + Supabase | Mesma stack do vis-dashboard. |
+| Deploy | **PM2 + nginx no Titan** (Digital Ocean); domínio prod `membros.visplatform.pro` | Mesma infra da VIS Platform. |
 | Testes | Vitest + Playwright (E2E críticos) | Webhook precisa de testes pesados. |
 
 ### Versionamento e dependências
@@ -113,13 +115,13 @@ Este projeto NUNCA usa Docker — nem em dev, nem em prod. Não criar `docker-co
 
 **Por quê:**
 - Máquina local de desenvolvimento (Magno) tem recurso limitado e não suporta Docker rodando confortavelmente
-- Em produção, deploys vão direto no host (Vercel cuida do build do Next.js sem container; Supabase é Postgres gerenciado)
+- Em produção, deploys vão direto no host (PM2 + nginx no Titan; MySQL e filesystem nativos no mesmo droplet)
 - Padrão do ecossistema do Magno: todos os projetos rodam diretamente no SO, sem orquestração de containers
 
 **Alternativas a usar:**
-- Postgres em dev: Supabase (recomendado) ou instalação nativa no host
-- Postgres em prod: Supabase
-- Build/deploy: Vercel (Next.js) ou DigitalOcean App Platform (se necessário no futuro)
+- MySQL em dev: Scoop no Windows (`scoop install mysql`) ou instalação nativa no host
+- MySQL em prod: Titan (mesmo droplet da VIS Platform; banco `vis_membros` isolado)
+- Build/deploy: PM2 + nginx no Titan (ver `RUNBOOK.md` Fases 4-7)
 - Serviços auxiliares: usar SaaS gerenciado (Resend, Evolution API SaaS, etc) em vez de self-host containerizado
 
 ---
@@ -243,9 +245,8 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")     // pooler 6543 — runtime
-  directUrl = env("DIRECT_URL")        // direct 5432 — migrations
+  provider = "mysql"
+  url      = env("DATABASE_URL")     // MySQL 8 — dev: local; prod: Titan
 }
 
 // ─────────────────────────────────────────
@@ -531,7 +532,7 @@ model ContentItem {
   description String?
 
   // por tipo:
-  fileKey     String?                  // chave no Supabase Storage (PDF, AUDIO_FILE, VIDEO_FILE)
+  fileKey     String?                  // path relativo a STORAGE_PATH (PDF, AUDIO_FILE, VIDEO_FILE)
   externalUrl String?                  // EXTERNAL_LINK, VIDEO_EMBED
   textContent String?                  // TEXT
   metadata    Json?
@@ -854,7 +855,7 @@ Detalhamento e justificativa em `docs/DECISIONS/001-scoped-db-strategy.md`.
 7. Cookies sempre secure em prod, httpOnly, sameSite=lax.
 
 ### LGPD
-- Email, CPF, telefone são PII. Backup criptografado em repouso (Supabase já faz).
+- Email, CPF, telefone são PII. Backup do MySQL (Titan) e do filesystem do storage entram no plano de backup do droplet — ver `RUNBOOK.md`.
 - Endpoint `/conta/exportar-dados` (Fase 5+) — usuário baixa tudo dele.
 - Endpoint `/conta/excluir` — anonimiza User, mantém Order/Entitlement por compliance fiscal.
 
@@ -984,12 +985,10 @@ vis-membros/
 ## 13. Variáveis de ambiente
 
 ```bash
-# Banco (Supabase Postgres)
-# DATABASE_URL: pooler (porta 6543) — usado pelo Prisma Client em runtime
-# DIRECT_URL: direct connection (porta 5432) — usado pelo Prisma Migrate
-# Ambos obrigatórios. Sem DIRECT_URL, migrations falham contra Supabase.
-DATABASE_URL="postgresql://user:password@host:6543/db?pgbouncer=true"
-DIRECT_URL="postgresql://user:password@host:5432/db"
+# Banco (MySQL 8 — dev: local via Scoop; prod: Titan)
+# Ver ADR 005. Em prod o user tem GRANT ALL ON vis_membros.* apenas; em dev
+# o user precisa de GRANT ALL ON *.* (Prisma cria shadow DB para `migrate dev`).
+DATABASE_URL="mysql://user:password@localhost:3306/vis_membros"
 
 # Auth
 SESSION_SECRET=                       # 64 chars random
@@ -1009,10 +1008,9 @@ WHATSAPP_INSTANCE=
 RESEND_API_KEY=
 EMAIL_FROM=
 
-# Storage (Supabase Storage — signed URLs de conteúdo; ver ADR 002)
-SUPABASE_URL=
-SUPABASE_SERVICE_ROLE_KEY=             # chave admin (ignora RLS) — NUNCA no frontend
-STORAGE_BUCKET=tenant-content          # bucket de conteúdo; default no código: tenant-content
+# Storage (filesystem local + signed URLs HMAC; ver ADR 004)
+STORAGE_PATH=./storage/files           # dev: ./storage/files; prod: /var/data/vis-membros/files
+STORAGE_SIGN_SECRET=                   # 32 bytes base64url (rotacionável; invalida tokens emitidos)
 
 # Push
 VAPID_PUBLIC_KEY=

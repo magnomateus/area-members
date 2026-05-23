@@ -11,36 +11,48 @@ produto, sem intervenção manual.
 
 - **Node.js** 20 LTS ou superior
 - **pnpm** (package manager do projeto)
-- Acesso a um banco **PostgreSQL** — em dev e em prod usamos **Supabase**
-  (este projeto **não usa Docker** — ver `docs/ARCHITECTURE.md` seção 3)
+- **MySQL 8+** local — dev em Windows via Scoop (`scoop install mysql`); em prod
+  roda no droplet **Titan** junto da VIS Platform (banco `vis_membros` isolado).
+  Ver [ADR 005](./docs/DECISIONS/005-banco-mysql-titan.md).
+- Este projeto **não usa Docker** — ver `docs/ARCHITECTURE.md` seção 3.
 
 ## Setup
 
 ```bash
-# 1. Variáveis de ambiente
-cp .env.example .env
-# Preencha DATABASE_URL (pooler, porta 6543) e DIRECT_URL (direta, porta 5432)
-# com as credenciais do seu projeto Supabase.
+# 1. Subir um MySQL local (Windows / Scoop)
+scoop install mysql                              # baixa e instala o MySQL 9.7+
+mysqld --console                                 # inicia o daemon (ou registra como serviço)
+mysql -uroot -e "CREATE DATABASE vis_membros_dev CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+mysql -uroot -e "CREATE USER 'vismembros_dev'@'localhost' IDENTIFIED BY 'CHANGE_ME';"
+mysql -uroot -e "GRANT ALL PRIVILEGES ON *.* TO 'vismembros_dev'@'localhost'; FLUSH PRIVILEGES;"
+# (Prisma migrate dev precisa de privilégios globais para a shadow DB.)
 
-# 2. Instalar dependências
+# 2. Variáveis de ambiente
+cp .env.example .env
+# Preencha DATABASE_URL apontando para o MySQL local:
+#   DATABASE_URL="mysql://vismembros_dev:CHANGE_ME@localhost:3306/vis_membros_dev"
+# E gere o STORAGE_SIGN_SECRET:
+#   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+
+# 3. Instalar dependências
 pnpm install
 
-# 3. Aplicar o schema no banco (migrations) + gerar o Prisma Client
+# 4. Aplicar o schema no banco (migrations) + gerar o Prisma Client
 pnpm db:migrate
 
-# 4. Popular dados de desenvolvimento (tenant Missa Explicada + dados fake)
+# 5. Popular dados de desenvolvimento (tenant Missa Explicada + dados fake)
 pnpm db:seed
 
-# 5. Subir o servidor de desenvolvimento
+# 6. Subir o servidor de desenvolvimento
 pnpm dev
 ```
 
 App em http://localhost:3000 · Prisma Studio com `pnpm db:studio`.
 
-> **Banco — Supabase.** `DATABASE_URL` aponta para o **pooler** (porta 6543,
-> usado pelo Prisma Client em runtime) e `DIRECT_URL` para a **conexão direta**
-> (porta 5432, usada pelo Prisma Migrate). Ambos são obrigatórios. Se a senha
+> **Banco — MySQL.** Em dev, qualquer MySQL 8+ local serve. Se a senha do user
 > tiver caracteres especiais (`@`, `:`, `/`), use percent-encoding na URL.
+> Em prod (Titan), o user `vismembros_user` tem `GRANT ALL ON vis_membros.*`
+> apenas — deploy usa `prisma migrate deploy` (sem shadow DB).
 
 ## Desenvolvimento
 
@@ -149,8 +161,9 @@ Depois de logado (passo 3 acima), a home lista os produtos liberados. Clicar em
 ConteúdoItems ativos. Para um item PDF, o botão **"Baixar PDF"**:
 
 1. chama `GET /api/content/[id]/signed-url` (autenticado);
-2. o endpoint valida sessão + Entitlement ativo e gera uma **signed URL** do
-   Supabase Storage **válida por 15 min** (proteção contra compartilhamento);
+2. o endpoint valida sessão + Entitlement ativo e gera uma **signed URL HMAC**
+   apontando para `/api/files/<token>`, **válida por 15 min** (proteção contra
+   compartilhamento);
 3. o navegador abre o PDF numa nova aba (em mobile, no leitor nativo).
 
 O endpoint responde `{ error: { code, message } }` nos casos de erro:
@@ -158,10 +171,11 @@ O endpoint responde `{ error: { code, message } }` nos casos de erro:
 `RATE_LIMITED` (429, limite de 10/min por usuário), `INVALID_CONTENT_TYPE`
 (400) e `INTERNAL_ERROR` (500).
 
-O Supabase Storage exige `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` e
-`STORAGE_BUCKET` no `.env` (ver `.env.example`). O `@supabase/supabase-js` é
-usado **apenas** para Storage e fica encapsulado em `src/lib/storage/` —
-ver [docs/DECISIONS/002-supabase-js-storage-only.md](./docs/DECISIONS/002-supabase-js-storage-only.md).
+O storage é o **filesystem local** (`STORAGE_PATH=./storage/files` em dev;
+`/var/data/vis-membros/files` em prod). As signed URLs são assinadas com
+HMAC-SHA256 nativo (`STORAGE_SIGN_SECRET`), e `GET /api/files/[token]`
+responde **404 silente** (anti-enumeração) para qualquer falha. Ver
+[docs/DECISIONS/004-storage-filesystem-local.md](./docs/DECISIONS/004-storage-filesystem-local.md).
 
 ## Comandos
 
@@ -205,5 +219,7 @@ do projeto:
 
 ## Stack
 
-Next.js 16 (App Router) · TypeScript strict · Prisma + PostgreSQL · Lucia Auth v3 ·
-Tailwind CSS · pnpm. Justificativas em `docs/ARCHITECTURE.md` seção 3.
+Next.js 16 (App Router) · TypeScript strict · Prisma + **MySQL 8** (Titan) ·
+Lucia Auth v3 · Tailwind CSS · shadcn/ui (admin) · pnpm. Deploy via **PM2 +
+nginx** em `membros.visplatform.pro`. Justificativas em `docs/ARCHITECTURE.md`
+seção 3.

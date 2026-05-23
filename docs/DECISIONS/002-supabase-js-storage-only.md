@@ -1,7 +1,7 @@
 # ADR 002 — `@supabase/supabase-js` apenas para Storage
 
-- **Status:** Aceito
-- **Data:** 21/05/2026
+- **Status:** ⚠️ **SUPERSEDED por [ADR 004](./004-storage-filesystem-local.md) em 23/05/2026**
+- **Data original:** 21/05/2026
 - **Contexto da decisão:** Sub-fase 1.5 (página do produto + download de PDF via signed URL)
 - **Referência:** `ARCHITECTURE.md` v1.5, seção 3 (stack) e seção 5 (modelo de dados)
 
@@ -64,3 +64,16 @@ fica **encapsulado em `src/lib/storage/`**.
 - **Gerar signed URL de um path arbitrário:** `createSignedUrl(bucket, path)`.
 - **Precisa do client cru do Storage:** `getSupabaseStorageClient()` — e
   somente dentro de `src/lib/storage/`.
+
+## Por que foi superada
+
+A migração para infra unificada com a VIS Platform (Fases 1–3 de
+maio/2026) moveu o banco para **MySQL no Titan** e o storage para
+**filesystem local com signed URLs HMAC** (ver [ADR 005](./005-banco-mysql-titan.md)
+e [ADR 004](./004-storage-filesystem-local.md)). O `@supabase/supabase-js`
+deixou de existir no projeto — `src/lib/storage/supabase-client.ts` e
+`src/lib/storage/signed-urls.ts` foram deletados; foram substituídos por
+`local-storage.ts` + `signed-urls-hmac.ts`. As regras desta ADR (banco =
+Prisma, auth = Lucia) seguem válidas — apenas o **provedor** de Storage
+mudou. A ADR fica preservada como histórico do raciocínio que sustentou
+a sub-fase 1.5.
