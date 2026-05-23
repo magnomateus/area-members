@@ -31,8 +31,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await testPrisma.adminAuditLog.deleteMany({ where: { adminUserId } });
+  // Prisma JSON path: MySQL usa sintaxe JSONPath (`$.email`), nao array.
   await testPrisma.adminAuditLog.deleteMany({
-    where: { after: { path: ["email"], equals: unknownEmail } },
+    where: { after: { path: "$.email", equals: unknownEmail } },
   });
   await testPrisma.adminSession.deleteMany({ where: { userId: adminUserId } });
   await testPrisma.adminMagicLink.deleteMany({ where: { adminUserId } });

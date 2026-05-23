@@ -4,17 +4,17 @@ import { createScopedDb } from "@/lib/tenant/scoped-db";
 /**
  * Infra de banco para os testes.
  *
- * Usa a conexão DIRETA (`DIRECT_URL`, porta 5432): transações interativas — base
- * do rollback por teste — não funcionam de forma confiável pelo pooler/pgbouncer
- * (6543). Cada teste roda dentro de uma transação revertida ao final, então nada
- * é persistido (o seed e dados reais ficam intactos).
+ * Usa `DATABASE_URL` direto — no MySQL não há split pooler/direct (era um
+ * workaround do pgbouncer do Supabase, que não permitia transações interativas
+ * pela porta 6543). Cada teste roda dentro de uma transação revertida ao
+ * final, então nada é persistido (o seed e dados reais ficam intactos).
  */
-const directUrl = process.env.DIRECT_URL;
-if (!directUrl) {
-  throw new Error("DIRECT_URL ausente — necessário para os testes (ver .env / .env.example).");
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) {
+  throw new Error("DATABASE_URL ausente — necessário para os testes (ver .env / .env.example).");
 }
 
-export const testPrisma = new PrismaClient({ datasourceUrl: directUrl });
+export const testPrisma = new PrismaClient({ datasourceUrl: databaseUrl });
 export const scopedTestDb = createScopedDb(testPrisma);
 
 /** Sinal interno usado para forçar o rollback da transação de teste. */

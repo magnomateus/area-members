@@ -11,6 +11,8 @@ next-env.d.ts
 
 # Prisma
 # (client gerado vive em node_modules; migrations SAO versionadas)
+# Backup das migrations Postgres pre-migracao MySQL — local-only, nao versionado.
+prisma/migrations.backup-postgres/
 
 # Environment / secrets
 .env
